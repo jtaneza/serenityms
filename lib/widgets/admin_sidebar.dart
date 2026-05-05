@@ -2,9 +2,15 @@ import 'package:flutter/material.dart';
 import '../core/app_colors.dart';
 import '../models/nav_item_model.dart';
 import '../models/user_model.dart';
-import '../screens/client_management_page.dart';
-import '../screens/dashboard_page.dart';
-import '../screens/login_page.dart';
+import '../views/super_admin/client_management_page.dart';
+import '../views/super_admin/dashboard_page.dart';
+import '../views/auth/login_page.dart';
+import '../views/super_admin/subscriptions_licenses_page.dart';
+import '../views/super_admin/system_performance_page.dart';
+import '../views/super_admin/system_settings_page.dart';
+import '../views/super_admin/system_reports_page.dart';
+import '../views/super_admin/backup_restore_page.dart';
+import '../services/auth_service.dart';
 
 class AdminSidebar extends StatelessWidget {
   final UserModel user;
@@ -17,12 +23,30 @@ class AdminSidebar extends StatelessWidget {
   });
 
   static const List<NavItemModel> navItems = <NavItemModel>[
-    NavItemModel(icon: Icons.dashboard_outlined, title: 'Dashboard'),
-    NavItemModel(icon: Icons.groups_outlined, title: 'Client Management'),
-    NavItemModel(icon: Icons.manage_accounts_outlined, title: 'Users & Roles'),
-    NavItemModel(icon: Icons.settings_outlined, title: 'System Config'),
-    NavItemModel(icon: Icons.monitor_heart_outlined, title: 'Monitoring'),
-    NavItemModel(icon: Icons.bar_chart_outlined, title: 'Reports'),
+    NavItemModel(
+      icon: Icons.dashboard_outlined,
+      title: 'Dashboard',
+    ),
+    NavItemModel(
+      icon: Icons.groups_outlined,
+      title: 'Client Management',
+    ),
+    NavItemModel(
+      icon: Icons.workspace_premium_outlined,
+      title: 'Subscriptions & Licenses',
+    ),
+    NavItemModel(
+      icon: Icons.show_chart_outlined,
+      title: 'View System Performance',
+    ),
+    NavItemModel(
+      icon: Icons.settings_outlined,
+      title: 'Configure System Settings',
+    ),
+    NavItemModel(
+      icon: Icons.receipt_long_outlined,
+      title: 'View System Reports',
+    ),
     NavItemModel(
       icon: Icons.settings_backup_restore_outlined,
       title: 'Backup & Restore',
@@ -37,6 +61,7 @@ class AdminSidebar extends StatelessWidget {
       child: Column(
         children: [
           const SizedBox(height: 24),
+
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 26),
             child: Row(
@@ -48,17 +73,17 @@ class AdminSidebar extends StatelessWidget {
                     gradient: AppColors.primaryGradient,
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(Icons.spa, color: Colors.white),
+                  child: const Icon(Icons.spa, color: Colors.white, size: 22),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        user.name,
+                      const Text(
+                        'Serenity M & S',
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: AppColors.primaryContainer,
                           fontSize: 16,
                           fontWeight: FontWeight.w800,
@@ -78,50 +103,37 @@ class AdminSidebar extends StatelessWidget {
               ],
             ),
           ),
+
           const SizedBox(height: 34),
+
           ...navItems.map(
                 (item) => _AdminSidebarTile(
               item: item,
+              user: user,
               isActive: item.title == selectedMenu,
-              onTap: () {
-                if (item.title == selectedMenu) return;
-
-                if (item.title == 'Dashboard') {
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => DashboardPage(user: user),
-                    ),
-                  );
-                } else if (item.title == 'Client Management') {
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ClientManagementPage(user: user),
-                    ),
-                  );
-                } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('${item.title} page not yet built')),
-                  );
-                }
-              },
             ),
           ),
+
           const Spacer(),
+
           _AdminSidebarTile(
             item: const NavItemModel(
               icon: Icons.logout_outlined,
               title: 'Logout',
             ),
+            user: user,
             isActive: false,
-            onTap: () {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (_) => const LoginPage()),
-              );
+            onTap: () async {
+              await AuthService.logout();
+              if (context.mounted) {
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LoginPage()),
+                );
+              }
             },
           ),
+
           const SizedBox(height: 18),
         ],
       ),
@@ -131,13 +143,15 @@ class AdminSidebar extends StatelessWidget {
 
 class _AdminSidebarTile extends StatelessWidget {
   final NavItemModel item;
+  final UserModel user;
   final bool isActive;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   const _AdminSidebarTile({
     required this.item,
+    required this.user,
     required this.isActive,
-    required this.onTap,
+    this.onTap,
   });
 
   @override
@@ -159,6 +173,7 @@ class _AdminSidebarTile extends StatelessWidget {
               dense: true,
               leading: Icon(
                 item.icon,
+                size: 22,
                 color: isActive
                     ? AppColors.primaryContainer
                     : AppColors.sidebarMuted,
@@ -173,11 +188,64 @@ class _AdminSidebarTile extends StatelessWidget {
                   fontSize: 14,
                 ),
               ),
-              onTap: onTap,
+              onTap: onTap ?? () => _handleNavigation(context),
             ),
           ),
         ],
       ),
     );
+  }
+
+  void _handleNavigation(BuildContext context) {
+    if (item.title == 'Dashboard') {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => DashboardPage(user: user),
+        ),
+      );
+    } else if (item.title == 'Client Management') {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ClientManagementPage(user: user),
+        ),
+      );
+    } else if (item.title == 'Subscriptions & Licenses') {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => SubscriptionsLicensesPage(user: user),
+        ),
+      );
+    } else if (item.title == 'View System Performance') {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => SystemPerformancePage(user: user),
+        ),
+      );
+    } else if (item.title == 'Configure System Settings') {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => SystemSettingsPage(user: user),
+        ),
+      );
+    } else if (item.title == 'View System Reports') {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => SystemReportsPage(user: user),
+        ),
+      );
+    } else if (item.title == 'Backup & Restore') {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => BackupRestorePage(user: user),
+        ),
+      );
+    }
   }
 }

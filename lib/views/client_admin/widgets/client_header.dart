@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
-import '../core/app_colors.dart';
-import '../models/user_model.dart';
-import '../views/super_admin/profile_settings_page.dart';
-import '../views/auth/login_page.dart';
+import '../../../core/app_colors.dart';
+import '../../../models/user_model.dart';
+import '../../../routes/route_names.dart';
+import '../../../services/auth_service.dart';
 
-class AdminHeader extends StatelessWidget {
+class ClientHeader extends StatelessWidget {
   final UserModel user;
+  final VoidCallback? onSettingsTap;
 
-  const AdminHeader({
+  const ClientHeader({
     super.key,
     required this.user,
+    this.onSettingsTap,
   });
 
   @override
@@ -21,6 +23,7 @@ class AdminHeader extends StatelessWidget {
       child: Row(
         children: [
           const Spacer(),
+
           Stack(
             children: [
               const Icon(
@@ -42,13 +45,17 @@ class AdminHeader extends StatelessWidget {
               ),
             ],
           ),
+
           const SizedBox(width: 22),
+
           Container(
             width: 1,
             height: 32,
             color: AppColors.outlineVariant.withValues(alpha: 0.3),
           ),
+
           const SizedBox(width: 16),
+
           Column(
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.end,
@@ -72,7 +79,9 @@ class AdminHeader extends StatelessWidget {
               ),
             ],
           ),
+
           const SizedBox(width: 12),
+
           Container(
             width: 38,
             height: 38,
@@ -89,28 +98,31 @@ class AdminHeader extends StatelessWidget {
               size: 20,
             ),
           ),
+
           PopupMenuButton<String>(
             tooltip: '',
             offset: const Offset(0, 42),
-            onSelected: (value) {
-              if (value == 'profile') {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => ProfileSettingsPage(user: user),
-                  ),
-                );
+            onSelected: (value) async {
+              if (value == 'settings') {
+                if (onSettingsTap != null) {
+                  onSettingsTap!();
+                }
               } else if (value == 'logout') {
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (_) => const LoginPage()),
-                );
+                await AuthService.logout();
+
+                if (context.mounted) {
+                  Navigator.pushNamedAndRemoveUntil(
+                    context,
+                    RouteNames.login,
+                        (route) => false,
+                  );
+                }
               }
             },
             itemBuilder: (context) => const [
               PopupMenuItem<String>(
-                value: 'profile',
-                child: Text('Profile Settings'),
+                value: 'settings',
+                child: Text('Settings'),
               ),
               PopupMenuItem<String>(
                 value: 'logout',

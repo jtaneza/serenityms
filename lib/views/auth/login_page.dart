@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dashboard_page.dart';
-import '../models/user_model.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
+import '../../models/user_model.dart';
+import '../../routes/route_names.dart';
+import '../../services/auth_service.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -22,66 +25,37 @@ class _LoginPageState extends State<LoginPage> {
   bool rememberMe = false;
   bool obscurePassword = true;
   bool isLoading = true;
+  bool isLoggingIn = false;
 
-  static const String adminEmail = 'admin@serenity.com';
-  static const String adminPassword = 'Admin123';
+  List<String> recentEmails = [];
 
   static const String rememberMeKey = 'remember_me';
   static const String savedEmailKey = 'saved_email';
   static const String savedPasswordKey = 'saved_password';
+  static const String recentEmailsKey = 'recent_emails';
 
   @override
   void initState() {
     super.initState();
-    loadSavedCredentials();
+    initializePage();
+  }
+
+  Future<void> initializePage() async {
+    await AuthService.seedSuperAdmin();
+    await loadSavedCredentials();
   }
 
   Future<void> loadSavedCredentials() async {
     final prefs = await SharedPreferences.getInstance();
 
-    final savedRememberMe = prefs.getBool(rememberMeKey) ?? false;
-    final savedEmail = prefs.getString(savedEmailKey) ?? '';
-    final savedPassword = prefs.getString(savedPasswordKey) ?? '';
+    rememberMe = prefs.getBool(rememberMeKey) ?? false;
+    emailController.text = prefs.getString(savedEmailKey) ?? '';
+    passwordController.text = prefs.getString(savedPasswordKey) ?? '';
+    recentEmails = prefs.getStringList(recentEmailsKey) ?? [];
 
-    setState(() {
-      rememberMe = savedRememberMe;
-
-      if (savedRememberMe) {
-        emailController.text = savedEmail;
-        passwordController.text = savedPassword;
-      } else {
-        emailController.clear();
-        passwordController.clear();
-      }
-
-      isLoading = false;
-    });
-  }
-
-  Future<void> updateRememberMe(bool value) async {
-    final prefs = await SharedPreferences.getInstance();
-
-    setState(() {
-      rememberMe = value;
-    });
-
-    await prefs.setBool(rememberMeKey, value);
-
-    if (value) {
-      await prefs.setString(savedEmailKey, emailController.text.trim());
-      await prefs.setString(savedPasswordKey, passwordController.text);
-    } else {
-      await prefs.remove(savedEmailKey);
-      await prefs.remove(savedPasswordKey);
+    if (mounted) {
+      setState(() => isLoading = false);
     }
-  }
-
-  Future<void> updateSavedCredentials() async {
-    if (!rememberMe) return;
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(savedEmailKey, emailController.text.trim());
-    await prefs.setString(savedPasswordKey, passwordController.text);
   }
 
   Future<void> saveCredentials() async {
@@ -96,34 +70,83 @@ class _LoginPageState extends State<LoginPage> {
       await prefs.remove(savedEmailKey);
       await prefs.remove(savedPasswordKey);
     }
+
+    final email = emailController.text.trim();
+
+    if (email.isNotEmpty && !recentEmails.contains(email)) {
+      recentEmails.insert(0, email);
+
+      if (recentEmails.length > 5) {
+        recentEmails.removeLast();
+      }
+
+      await prefs.setStringList(recentEmailsKey, recentEmails);
+    }
+  }
+
+  String normalizeRole(String role) {
+    return role.toLowerCase().trim().replaceAll(' ', '_');
   }
 
   Future<void> login() async {
     if (!_formKey.currentState!.validate()) return;
 
+    setState(() => isLoggingIn = true);
+
     final email = emailController.text.trim();
     final password = passwordController.text;
 
-    if (email == adminEmail && password == adminPassword) {
+    try {
+      final UserModel user = await AuthService.login(
+        email: email,
+        password: password,
+      );
+
       await saveCredentials();
 
       if (!mounted) return;
-      final user = UserModel(
-        name: 'Julian Thorne',
-        role: 'Super Admin',
-        email: email,
-      );
 
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => DashboardPage(user: user),
-        ),
-      );
-    } else {
+      final role = normalizeRole(user.role);
+
+      if (role == 'super_admin' || role == 'superadmin') {
+        Navigator.pushReplacementNamed(
+          context,
+          RouteNames.superAdminDashboard,
+          arguments: user,
+        );
+      } else if (role == 'client_admin' ||
+          role == 'clientadmin' ||
+          role == 'client') {
+        if (user.mustChangePassword == true || user.profileCompleted == false) {
+          Navigator.pushReplacementNamed(
+            context,
+            RouteNames.clientFirstSetup,
+            arguments: user,
+          );
+        } else {
+          Navigator.pushReplacementNamed(
+            context,
+            RouteNames.clientDashboard,
+            arguments: user,
+          );
+        }
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unknown user role detected: ${user.role}')),
+        );
+      }
+    } on FirebaseAuthException catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Invalid email or password')),
+        SnackBar(content: Text(e.message ?? 'Login failed')),
       );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('System error: $e')),
+      );
+    }
+
+    if (mounted) {
+      setState(() => isLoggingIn = false);
     }
   }
 
@@ -142,9 +165,7 @@ class _LoginPageState extends State<LoginPage> {
     final isDesktop = screenWidth >= 900;
 
     if (isLoading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     return Scaffold(
@@ -163,16 +184,13 @@ class _LoginPageState extends State<LoginPage> {
                 passwordFocusNode: passwordFocusNode,
                 rememberMe: rememberMe,
                 obscurePassword: obscurePassword,
-                onRememberChanged: (value) async {
-                  await updateRememberMe(value ?? false);
-                },
-                onCredentialsChanged: () async {
-                  await updateSavedCredentials();
-                },
+                recentEmails: recentEmails,
+                isLoggingIn: isLoggingIn,
                 onTogglePassword: () {
-                  setState(() {
-                    obscurePassword = !obscurePassword;
-                  });
+                  setState(() => obscurePassword = !obscurePassword);
+                },
+                onRememberChanged: (v) {
+                  setState(() => rememberMe = v ?? false);
                 },
                 onLogin: login,
               ),
@@ -191,16 +209,13 @@ class _LoginPageState extends State<LoginPage> {
                 passwordFocusNode: passwordFocusNode,
                 rememberMe: rememberMe,
                 obscurePassword: obscurePassword,
-                onRememberChanged: (value) async {
-                  await updateRememberMe(value ?? false);
-                },
-                onCredentialsChanged: () async {
-                  await updateSavedCredentials();
-                },
+                recentEmails: recentEmails,
+                isLoggingIn: isLoggingIn,
                 onTogglePassword: () {
-                  setState(() {
-                    obscurePassword = !obscurePassword;
-                  });
+                  setState(() => obscurePassword = !obscurePassword);
+                },
+                onRememberChanged: (v) {
+                  setState(() => rememberMe = v ?? false);
                 },
                 onLogin: login,
               ),
@@ -228,7 +243,7 @@ class _BrandPanel extends StatelessWidget {
               width: 300,
               height: 300,
               decoration: BoxDecoration(
-                color: const Color(0xFF00B894).withValues(alpha: 0.14),
+                color: const Color(0xFF00B894).withOpacity(0.14),
                 shape: BoxShape.circle,
               ),
             ),
@@ -240,90 +255,36 @@ class _BrandPanel extends StatelessWidget {
               width: 300,
               height: 300,
               decoration: BoxDecoration(
-                color: const Color(0xFF4BDDB7).withValues(alpha: 0.14),
+                color: const Color(0xFF4BDDB7).withOpacity(0.14),
                 shape: BoxShape.circle,
               ),
             ),
           ),
           Center(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 40),
+              padding: const EdgeInsets.symmetric(horizontal: 36),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Container(
-                    width: 110,
-                    height: 110,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF00B894),
-                      borderRadius: BorderRadius.circular(28),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color.fromRGBO(0, 184, 148, 0.20),
-                          blurRadius: 24,
-                          offset: Offset(0, 10),
-                        ),
-                      ],
-                    ),
-                    child: const Icon(
-                      Icons.spa,
-                      color: Colors.white,
-                      size: 58,
-                    ),
-                  ),
-                  const SizedBox(height: 48),
-                  const Text(
+                children: const [
+                  Icon(Icons.spa, size: 90, color: Colors.white),
+                  SizedBox(height: 35),
+                  Text(
                     'Serenity Massage and Spa',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 42,
-                      fontWeight: FontWeight.w800,
-                      height: 1.1,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const SizedBox(height: 18),
-                  const Text(
-                    'Reclaiming clinical precision in the art of tranquility. Welcome back to your personal sanctuary.',
+                  SizedBox(height: 20),
+                  Text(
+                    'Reclaiming clinical precision in the art of tranquility.\nWelcome back to your personal sanctuary.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: Color(0xFFBBCAC3),
                       fontSize: 16,
                       height: 1.6,
-                    ),
-                  ),
-                  const SizedBox(height: 40),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.05),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.10),
-                      ),
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: const [
-                        CircleAvatar(
-                          radius: 4,
-                          backgroundColor: Color(0xFF6DFAD2),
-                        ),
-                        SizedBox(width: 10),
-                        Text(
-                          'SANCTUARY OPERATIONAL',
-                          style: TextStyle(
-                            color: Color(0xFFBBCAC3),
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 1.3,
-                          ),
-                        ),
-                      ],
                     ),
                   ),
                 ],
@@ -344,8 +305,9 @@ class _LoginPanel extends StatelessWidget {
   final FocusNode passwordFocusNode;
   final bool rememberMe;
   final bool obscurePassword;
-  final Future<void> Function(bool?) onRememberChanged;
-  final Future<void> Function() onCredentialsChanged;
+  final bool isLoggingIn;
+  final List<String> recentEmails;
+  final ValueChanged<bool?> onRememberChanged;
   final VoidCallback onTogglePassword;
   final Future<void> Function() onLogin;
 
@@ -357,8 +319,9 @@ class _LoginPanel extends StatelessWidget {
     required this.passwordFocusNode,
     required this.rememberMe,
     required this.obscurePassword,
+    required this.isLoggingIn,
+    required this.recentEmails,
     required this.onRememberChanged,
-    required this.onCredentialsChanged,
     required this.onTogglePassword,
     required this.onLogin,
   });
@@ -429,38 +392,62 @@ class _LoginPanel extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    TextFormField(
-                      controller: emailController,
-                      focusNode: emailFocusNode,
-                      keyboardType: TextInputType.emailAddress,
-                      textInputAction: TextInputAction.next,
-                      onFieldSubmitted: (_) {
-                        FocusScope.of(context).requestFocus(passwordFocusNode);
-                      },
-                      onChanged: (_) async {
-                        await onCredentialsChanged();
-                      },
-                      decoration: InputDecoration(
-                        prefixIcon: const Icon(Icons.mail_outline),
-                        filled: true,
-                        fillColor: const Color(0xFFE3E9EC),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide.none,
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 18,
-                          vertical: 18,
-                        ),
-                      ),
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Please enter your email';
+                    Autocomplete<String>(
+                      optionsBuilder: (TextEditingValue value) {
+                        if (value.text.isEmpty) {
+                          return recentEmails;
                         }
-                        if (!value.contains('@')) {
-                          return 'Please enter a valid email';
-                        }
-                        return null;
+
+                        return recentEmails.where(
+                              (e) => e.toLowerCase().contains(
+                            value.text.toLowerCase(),
+                          ),
+                        );
+                      },
+                      onSelected: (value) {
+                        emailController.text = value;
+                      },
+                      fieldViewBuilder:
+                          (context, controller, focusNode, onEditingComplete) {
+                        controller.text = emailController.text;
+
+                        return TextFormField(
+                          controller: controller,
+                          focusNode: focusNode,
+                          keyboardType: TextInputType.emailAddress,
+                          textInputAction: TextInputAction.next,
+                          onChanged: (v) => emailController.text = v,
+                          onFieldSubmitted: (_) {
+                            FocusScope.of(context).requestFocus(
+                              passwordFocusNode,
+                            );
+                          },
+                          decoration: InputDecoration(
+                            prefixIcon: const Icon(Icons.mail_outline),
+                            hintText: 'Institutional Email',
+                            filled: true,
+                            fillColor: const Color(0xFFE3E9EC),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(16),
+                              borderSide: BorderSide.none,
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 18,
+                              vertical: 18,
+                            ),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Please enter your email';
+                            }
+
+                            if (!value.contains('@')) {
+                              return 'Please enter a valid email';
+                            }
+
+                            return null;
+                          },
+                        );
                       },
                     ),
                     const SizedBox(height: 20),
@@ -495,14 +482,10 @@ class _LoginPanel extends StatelessWidget {
                       focusNode: passwordFocusNode,
                       obscureText: obscurePassword,
                       textInputAction: TextInputAction.done,
-                      onFieldSubmitted: (_) async {
-                        await onLogin();
-                      },
-                      onChanged: (_) async {
-                        await onCredentialsChanged();
-                      },
+                      onFieldSubmitted: (_) async => await onLogin(),
                       decoration: InputDecoration(
                         prefixIcon: const Icon(Icons.lock_outline),
+                        hintText: 'Secure Password',
                         suffixIcon: IconButton(
                           onPressed: onTogglePassword,
                           icon: Icon(
@@ -526,6 +509,7 @@ class _LoginPanel extends StatelessWidget {
                         if (value == null || value.isEmpty) {
                           return 'Please enter your password';
                         }
+
                         return null;
                       },
                     ),
@@ -535,9 +519,7 @@ class _LoginPanel extends StatelessWidget {
                         Checkbox(
                           value: rememberMe,
                           activeColor: const Color(0xFF006B55),
-                          onChanged: (value) async {
-                            await onRememberChanged(value);
-                          },
+                          onChanged: onRememberChanged,
                         ),
                         const Expanded(
                           child: Text(
@@ -557,7 +539,10 @@ class _LoginPanel extends StatelessWidget {
                       child: DecoratedBox(
                         decoration: BoxDecoration(
                           gradient: const LinearGradient(
-                            colors: [Color(0xFF006B55), Color(0xFF00B894)],
+                            colors: [
+                              Color(0xFF006B55),
+                              Color(0xFF00B894),
+                            ],
                           ),
                           borderRadius: BorderRadius.circular(16),
                           boxShadow: const [
@@ -569,7 +554,9 @@ class _LoginPanel extends StatelessWidget {
                           ],
                         ),
                         child: ElevatedButton.icon(
-                          onPressed: () async {
+                          onPressed: isLoggingIn
+                              ? null
+                              : () async {
                             await onLogin();
                           },
                           style: ElevatedButton.styleFrom(
@@ -579,7 +566,16 @@ class _LoginPanel extends StatelessWidget {
                               borderRadius: BorderRadius.circular(16),
                             ),
                           ),
-                          icon: const Text(
+                          icon: isLoggingIn
+                              ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                              : const Text(
                             'Login to Sanctuary',
                             style: TextStyle(
                               fontSize: 17,
@@ -587,7 +583,9 @@ class _LoginPanel extends StatelessWidget {
                               color: Colors.white,
                             ),
                           ),
-                          label: const Icon(
+                          label: isLoggingIn
+                              ? const SizedBox()
+                              : const Icon(
                             Icons.arrow_forward,
                             color: Colors.white,
                           ),

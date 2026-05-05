@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../models/user_model.dart';
+import '../../models/user_model.dart';
 
 class ProfileSettingsPage extends StatefulWidget {
   final UserModel user;
@@ -21,7 +21,7 @@ class _ProfileSettingsPageState extends State<ProfileSettingsPage> {
   @override
   void initState() {
     super.initState();
-    nameController = TextEditingController(text: widget.user.name);
+    nameController = TextEditingController(text: widget.user.fullName);
     emailController = TextEditingController(text: widget.user.email);
     passwordController = TextEditingController();
   }
