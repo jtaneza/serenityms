@@ -1,8 +1,10 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+
 import '../../core/app_colors.dart';
 import '../../models/user_model.dart';
-import '../../widgets/admin_sidebar.dart';
 import '../../widgets/admin_header.dart';
+import '../../widgets/admin_sidebar.dart';
 
 class DashboardPage extends StatelessWidget {
   final UserModel user;
@@ -12,18 +14,79 @@ class DashboardPage extends StatelessWidget {
     required this.user,
   });
 
-  static const List<double> performanceBars = <double>[
-    0.40,
-    0.65,
-    0.45,
-    0.85,
-    0.60,
-    0.75,
-    0.55,
-    0.92,
-    0.70,
-    0.65,
-  ];
+  Stream<QuerySnapshot> get clientsStream {
+    return FirebaseFirestore.instance.collection('clients').snapshots();
+  }
+
+  Stream<QuerySnapshot> get usersStream {
+    return FirebaseFirestore.instance.collection('users').snapshots();
+  }
+
+  Stream<QuerySnapshot> get appointmentsStream {
+    return FirebaseFirestore.instance.collection('appointments').snapshots();
+  }
+
+  Stream<QuerySnapshot> get paymentsStream {
+    return FirebaseFirestore.instance.collection('payments').snapshots();
+  }
+
+  Stream<QuerySnapshot> get subscriptionPaymentsStream {
+    return FirebaseFirestore.instance
+        .collection('subscription_payments')
+        .snapshots();
+  }
+
+  Stream<QuerySnapshot> get subscriptionPlansStream {
+    return FirebaseFirestore.instance
+        .collection('subscription_plans')
+        .snapshots();
+  }
+
+  num toNumber(dynamic value) {
+    if (value is num) return value;
+    return num.tryParse(value.toString()) ?? 0;
+  }
+
+  DateTime? toDate(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    return null;
+  }
+
+  bool isActiveClient(Map<String, dynamic> data) {
+    final status = (data['status'] ?? data['subscriptionStatus'] ?? '')
+        .toString()
+        .toLowerCase();
+
+    return status == 'active' || status.contains('active');
+  }
+
+  bool isExpiredClient(Map<String, dynamic> data) {
+    final status = (data['status'] ?? data['subscriptionStatus'] ?? '')
+        .toString()
+        .toLowerCase();
+
+    final expiry = data['subscriptionExpiry'] ?? data['expiryDate'];
+
+    if (status.contains('expired')) return true;
+
+    if (expiry is Timestamp) {
+      return expiry.toDate().isBefore(DateTime.now());
+    }
+
+    return false;
+  }
+
+  bool isPaid(Map<String, dynamic> data) {
+    final status = (data['status'] ?? data['paymentStatus'] ?? '')
+        .toString()
+        .toLowerCase();
+
+    return status.contains('paid') ||
+        status.contains('verified') ||
+        status.contains('full payment') ||
+        status.contains('completed');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -40,20 +103,155 @@ class DashboardPage extends StatelessWidget {
               children: [
                 AdminHeader(user: user),
                 Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(40, 28, 40, 36),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        DashboardHeader(),
-                        SizedBox(height: 34),
-                        MetricCardsRow(),
-                        SizedBox(height: 32),
-                        DashboardMiddleSection(),
-                        SizedBox(height: 32),
-                        ActiveSystemLogs(),
-                      ],
-                    ),
+                  child: StreamBuilder<QuerySnapshot>(
+                    stream: clientsStream,
+                    builder: (context, clientSnapshot) {
+                      return StreamBuilder<QuerySnapshot>(
+                        stream: usersStream,
+                        builder: (context, userSnapshot) {
+                          return StreamBuilder<QuerySnapshot>(
+                            stream: appointmentsStream,
+                            builder: (context, appointmentSnapshot) {
+                              return StreamBuilder<QuerySnapshot>(
+                                stream: paymentsStream,
+                                builder: (context, paymentSnapshot) {
+                                  return StreamBuilder<QuerySnapshot>(
+                                    stream: subscriptionPaymentsStream,
+                                    builder: (context, subscriptionSnapshot) {
+                                      final clientDocs =
+                                          clientSnapshot.data?.docs ?? [];
+                                      final userDocs =
+                                          userSnapshot.data?.docs ?? [];
+                                      final appointmentDocs =
+                                          appointmentSnapshot.data?.docs ?? [];
+                                      final paymentDocs =
+                                          paymentSnapshot.data?.docs ?? [];
+                                      final subscriptionDocs =
+                                          subscriptionSnapshot.data?.docs ?? [];
+
+                                      final clientData = clientDocs
+                                          .map((doc) => doc.data()
+                                      as Map<String, dynamic>)
+                                          .toList();
+
+                                      final userData = userDocs
+                                          .map((doc) => doc.data()
+                                      as Map<String, dynamic>)
+                                          .toList();
+
+                                      final appointmentData = appointmentDocs
+                                          .map((doc) => doc.data()
+                                      as Map<String, dynamic>)
+                                          .toList();
+
+                                      final paymentData = paymentDocs
+                                          .map((doc) => doc.data()
+                                      as Map<String, dynamic>)
+                                          .toList();
+
+                                      final subscriptionData = subscriptionDocs
+                                          .map((doc) => doc.data()
+                                      as Map<String, dynamic>)
+                                          .toList();
+
+                                      final totalClients = clientDocs.isNotEmpty
+                                          ? clientDocs.length
+                                          : userData.where((data) {
+                                        final role =
+                                        (data['role'] ?? '')
+                                            .toString()
+                                            .toLowerCase();
+                                        return role.contains('client');
+                                      }).length;
+
+                                      final activeSubscriptions = clientData
+                                          .where(isActiveClient)
+                                          .length;
+
+                                      final expiredSubscriptions = clientData
+                                          .where(isExpiredClient)
+                                          .length;
+
+                                      final totalPayments = paymentData
+                                          .where(isPaid)
+                                          .fold<num>(
+                                        0,
+                                            (sum, data) =>
+                                        sum + toNumber(data['amount']),
+                                      );
+
+                                      final totalSubscriptionPayments =
+                                      subscriptionData.where(isPaid).fold<num>(
+                                        0,
+                                            (sum, data) =>
+                                        sum +
+                                            toNumber(data['amount']),
+                                      );
+
+                                      final totalRevenue =
+                                          totalPayments + totalSubscriptionPayments;
+
+                                      final recentActivities =
+                                      buildRecentActivities(
+                                        clientData: clientData,
+                                        paymentData: paymentData,
+                                        subscriptionData: subscriptionData,
+                                        appointmentData: appointmentData,
+                                      );
+
+                                      final performanceBars =
+                                      buildPerformanceBars(
+                                        appointmentData,
+                                        paymentData,
+                                      );
+
+                                      return SingleChildScrollView(
+                                        padding: const EdgeInsets.fromLTRB(
+                                          40,
+                                          28,
+                                          40,
+                                          36,
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                          children: [
+                                            const DashboardHeader(),
+                                            const SizedBox(height: 34),
+                                            MetricCardsRow(
+                                              totalClients: totalClients,
+                                              activeSubscriptions:
+                                              activeSubscriptions,
+                                              expiredSubscriptions:
+                                              expiredSubscriptions,
+                                              totalRevenue: totalRevenue,
+                                            ),
+                                            const SizedBox(height: 32),
+                                            DashboardMiddleSection(
+                                              performanceBars:
+                                              performanceBars,
+                                              recentActivities:
+                                              recentActivities,
+                                            ),
+                                            const SizedBox(height: 32),
+                                            ActiveSystemLogs(
+                                              appointmentsCount:
+                                              appointmentDocs.length,
+                                              paymentsCount: paymentDocs.length,
+                                              clientsCount: totalClients,
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    },
+                                  );
+                                },
+                              );
+                            },
+                          );
+                        },
+                      );
+                    },
                   ),
                 ),
               ],
@@ -63,6 +261,160 @@ class DashboardPage extends StatelessWidget {
       ),
     );
   }
+
+  List<double> buildPerformanceBars(
+      List<Map<String, dynamic>> appointments,
+      List<Map<String, dynamic>> payments,
+      ) {
+    final now = DateTime.now();
+    final counts = List<int>.filled(7, 0);
+
+    for (final data in appointments) {
+      final date = toDate(data['createdAt'] ?? data['appointmentDate']);
+      if (date == null) continue;
+
+      final diff = now.difference(date).inDays;
+      if (diff >= 0 && diff < 7) {
+        final index = 6 - diff;
+        counts[index]++;
+      }
+    }
+
+    for (final data in payments) {
+      final date = toDate(data['createdAt'] ?? data['updatedAt']);
+      if (date == null) continue;
+
+      final diff = now.difference(date).inDays;
+      if (diff >= 0 && diff < 7) {
+        final index = 6 - diff;
+        counts[index]++;
+      }
+    }
+
+    final maxCount = counts.fold<int>(
+      1,
+          (max, value) => value > max ? value : max,
+    );
+
+    return counts.map((count) {
+      if (count == 0) return 0.15;
+      return (count / maxCount).clamp(0.20, 1.0);
+    }).toList();
+  }
+
+  List<ActivityData> buildRecentActivities({
+    required List<Map<String, dynamic>> clientData,
+    required List<Map<String, dynamic>> paymentData,
+    required List<Map<String, dynamic>> subscriptionData,
+    required List<Map<String, dynamic>> appointmentData,
+  }) {
+    final items = <ActivityData>[];
+
+    for (final data in clientData) {
+      items.add(
+        ActivityData(
+          title: 'Client record updated',
+          subtitle: (data['businessName'] ??
+              data['companyName'] ??
+              data['fullName'] ??
+              'Client')
+              .toString(),
+          time: activityTime(data['updatedAt'] ?? data['createdAt']),
+          date: toDate(data['updatedAt'] ?? data['createdAt']),
+          isError: isExpiredClient(data),
+        ),
+      );
+    }
+
+    for (final data in subscriptionData) {
+      items.add(
+        ActivityData(
+          title: 'Subscription payment recorded',
+          subtitle: (data['clientName'] ??
+              data['businessName'] ??
+              data['customerName'] ??
+              'Subscription')
+              .toString(),
+          time: activityTime(data['createdAt'] ?? data['updatedAt']),
+          date: toDate(data['createdAt'] ?? data['updatedAt']),
+          isError: !isPaid(data),
+        ),
+      );
+    }
+
+    for (final data in paymentData) {
+      items.add(
+        ActivityData(
+          title: 'Service payment recorded',
+          subtitle: (data['customerName'] ??
+              data['clientName'] ??
+              data['serviceName'] ??
+              'Payment')
+              .toString(),
+          time: activityTime(data['createdAt'] ?? data['updatedAt']),
+          date: toDate(data['createdAt'] ?? data['updatedAt']),
+          isError: !isPaid(data),
+        ),
+      );
+    }
+
+    for (final data in appointmentData) {
+      final status = (data['status'] ?? 'Pending').toString();
+
+      items.add(
+        ActivityData(
+          title: '$status appointment',
+          subtitle: '${data['customerName'] ?? 'Customer'} • ${data['serviceName'] ?? 'Service'}',
+          time: activityTime(data['updatedAt'] ?? data['createdAt']),
+          date: toDate(data['updatedAt'] ?? data['createdAt']),
+          isError: status.toLowerCase() == 'cancelled' ||
+              status.toLowerCase() == 'declined',
+        ),
+      );
+    }
+
+    items.sort((a, b) {
+      final aDate = a.date;
+      final bDate = b.date;
+
+      if (aDate == null && bDate == null) return 0;
+      if (aDate == null) return 1;
+      if (bDate == null) return -1;
+
+      return bDate.compareTo(aDate);
+    });
+
+    return items.take(8).toList();
+  }
+
+  String activityTime(dynamic value) {
+    final date = toDate(value);
+    if (date == null) return 'RECENTLY';
+
+    final diff = DateTime.now().difference(date);
+
+    if (diff.inMinutes < 1) return 'JUST NOW';
+    if (diff.inMinutes < 60) return '${diff.inMinutes} MINUTES AGO';
+    if (diff.inHours < 24) return '${diff.inHours} HOURS AGO';
+    if (diff.inDays == 1) return 'YESTERDAY';
+    return '${diff.inDays} DAYS AGO';
+  }
+}
+
+class ActivityData {
+  final String title;
+  final String subtitle;
+  final String time;
+  final DateTime? date;
+  final bool isError;
+
+  ActivityData({
+    required this.title,
+    required this.subtitle,
+    required this.time,
+    required this.date,
+    required this.isError,
+  });
 }
 
 class DashboardHeader extends StatelessWidget {
@@ -100,45 +452,68 @@ class DashboardHeader extends StatelessWidget {
 }
 
 class MetricCardsRow extends StatelessWidget {
-  const MetricCardsRow({super.key});
+  final int totalClients;
+  final int activeSubscriptions;
+  final int expiredSubscriptions;
+  final num totalRevenue;
+
+  const MetricCardsRow({
+    super.key,
+    required this.totalClients,
+    required this.activeSubscriptions,
+    required this.expiredSubscriptions,
+    required this.totalRevenue,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return const Row(
+    return Row(
       children: [
         Expanded(
           child: MetricCard(
             icon: Icons.groups,
             title: 'Total Clients',
-            value: '1,428',
-            helper: 'Growth from last month',
-            badgeText: '12.4%',
-            badgeIcon: Icons.trending_up,
+            value: '$totalClients',
+            helper: 'Client records from database',
+            badgeText: 'Live',
+            badgeIcon: Icons.cloud_done,
             isError: false,
           ),
         ),
-        SizedBox(width: 24),
+        const SizedBox(width: 24),
         Expanded(
           child: MetricCard(
             icon: Icons.card_membership,
             title: 'Active Subscriptions',
-            value: '1,284',
-            helper: 'Current retention rate',
-            badgeText: '98%',
+            value: '$activeSubscriptions',
+            helper: 'Active client subscription records',
+            badgeText: 'Active',
             badgeIcon: Icons.verified,
             isError: false,
           ),
         ),
-        SizedBox(width: 24),
+        const SizedBox(width: 24),
         Expanded(
           child: MetricCard(
             icon: Icons.event_busy,
             title: 'Expired Subscriptions',
-            value: '12',
-            helper: 'Requiring immediate action',
-            badgeText: '1.2%',
+            value: '$expiredSubscriptions',
+            helper: 'Clients needing subscription review',
+            badgeText: 'Review',
             badgeIcon: Icons.warning,
-            isError: true,
+            isError: expiredSubscriptions > 0,
+          ),
+        ),
+        const SizedBox(width: 24),
+        Expanded(
+          child: MetricCard(
+            icon: Icons.payments_outlined,
+            title: 'Total Revenue',
+            value: '₱${totalRevenue.toStringAsFixed(2)}',
+            helper: 'Payments from database',
+            badgeText: 'Paid',
+            badgeIcon: Icons.trending_up,
+            isError: false,
           ),
         ),
       ],
@@ -243,20 +618,31 @@ class MetricCard extends StatelessWidget {
 }
 
 class DashboardMiddleSection extends StatelessWidget {
-  const DashboardMiddleSection({super.key});
+  final List<double> performanceBars;
+  final List<ActivityData> recentActivities;
+
+  const DashboardMiddleSection({
+    super.key,
+    required this.performanceBars,
+    required this.recentActivities,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return const Row(
+    return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
           flex: 2,
-          child: SystemPerformanceTrends(),
+          child: SystemPerformanceTrends(
+            performanceBars: performanceBars,
+          ),
         ),
-        SizedBox(width: 32),
+        const SizedBox(width: 32),
         Expanded(
-          child: RecentActivitiesCard(),
+          child: RecentActivitiesCard(
+            activities: recentActivities,
+          ),
         ),
       ],
     );
@@ -264,10 +650,19 @@ class DashboardMiddleSection extends StatelessWidget {
 }
 
 class SystemPerformanceTrends extends StatelessWidget {
-  const SystemPerformanceTrends({super.key});
+  final List<double> performanceBars;
+
+  const SystemPerformanceTrends({
+    super.key,
+    required this.performanceBars,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final bars = performanceBars.isEmpty
+        ? List<double>.filled(7, 0.15)
+        : performanceBars;
+
     return Container(
       height: 480,
       padding: const EdgeInsets.all(32),
@@ -295,7 +690,7 @@ class SystemPerformanceTrends extends StatelessWidget {
                     ),
                     SizedBox(height: 4),
                     Text(
-                      'Real-time throughput and load balancing statistics',
+                      'Records created in the last 7 days',
                       style: TextStyle(
                         color: AppColors.secondary,
                         fontSize: 13,
@@ -316,7 +711,7 @@ class SystemPerformanceTrends extends StatelessWidget {
                 child: const Row(
                   children: [
                     Text(
-                      'MONTHLY',
+                      'LIVE',
                       style: TextStyle(
                         color: AppColors.onSurface,
                         fontSize: 10,
@@ -326,7 +721,7 @@ class SystemPerformanceTrends extends StatelessWidget {
                     ),
                     SizedBox(width: 8),
                     Icon(
-                      Icons.keyboard_arrow_down,
+                      Icons.cloud_done_outlined,
                       color: AppColors.onSurface,
                       size: 18,
                     ),
@@ -352,10 +747,10 @@ class SystemPerformanceTrends extends StatelessWidget {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: List.generate(
-                    DashboardPage.performanceBars.length,
+                    bars.length,
                         (index) {
-                      final double bar = DashboardPage.performanceBars[index];
-                      final bool active = index == 3 || index == 7;
+                      final double bar = bars[index];
+                      final bool active = index == bars.length - 1;
 
                       return Expanded(
                         child: Padding(
@@ -383,13 +778,13 @@ class SystemPerformanceTrends extends StatelessWidget {
           const Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              ChartDayLabel('MON'),
-              ChartDayLabel('TUE'),
-              ChartDayLabel('WED'),
-              ChartDayLabel('THU'),
-              ChartDayLabel('FRI'),
-              ChartDayLabel('SAT'),
-              ChartDayLabel('SUN'),
+              ChartDayLabel('6D'),
+              ChartDayLabel('5D'),
+              ChartDayLabel('4D'),
+              ChartDayLabel('3D'),
+              ChartDayLabel('2D'),
+              ChartDayLabel('YEST'),
+              ChartDayLabel('TODAY'),
             ],
           ),
         ],
@@ -418,7 +813,12 @@ class ChartDayLabel extends StatelessWidget {
 }
 
 class RecentActivitiesCard extends StatelessWidget {
-  const RecentActivitiesCard({super.key});
+  final List<ActivityData> activities;
+
+  const RecentActivitiesCard({
+    super.key,
+    required this.activities,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -432,8 +832,8 @@ class RecentActivitiesCard extends StatelessWidget {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: const [
-          Text(
+        children: [
+          const Text(
             'Recent Activities',
             style: TextStyle(
               color: AppColors.onSurface,
@@ -441,36 +841,25 @@ class RecentActivitiesCard extends StatelessWidget {
               fontWeight: FontWeight.w800,
             ),
           ),
-          SizedBox(height: 20),
+          const SizedBox(height: 20),
           Expanded(
-            child: SingleChildScrollView(
+            child: activities.isEmpty
+                ? const Center(
+              child: Text(
+                'No recent activities yet.',
+                style: TextStyle(color: AppColors.secondary),
+              ),
+            )
+                : SingleChildScrollView(
               child: Column(
-                children: [
-                  ActivityDotItem(
-                    title: 'New client registered',
-                    subtitle: 'Harbor View Medical Center',
-                    time: '2 MINUTES AGO',
-                    isError: false,
-                  ),
-                  ActivityDotItem(
-                    title: 'Subscription renewed',
-                    subtitle: 'Oasis Wellness (Enterprise)',
-                    time: '1 HOUR AGO',
-                    isError: false,
-                  ),
-                  ActivityDotItem(
-                    title: 'Subscription expired',
-                    subtitle: 'Evergreen Family Clinic',
-                    time: '4 HOURS AGO',
-                    isError: true,
-                  ),
-                  ActivityDotItem(
-                    title: 'Backup successful',
-                    subtitle: 'Daily system state archive',
-                    time: 'YESTERDAY',
-                    isError: false,
-                  ),
-                ],
+                children: activities.map((item) {
+                  return ActivityDotItem(
+                    title: item.title,
+                    subtitle: item.subtitle,
+                    time: item.time,
+                    isError: item.isError,
+                  );
+                }).toList(),
               ),
             ),
           ),
@@ -553,7 +942,16 @@ class ActivityDotItem extends StatelessWidget {
 }
 
 class ActiveSystemLogs extends StatelessWidget {
-  const ActiveSystemLogs({super.key});
+  final int appointmentsCount;
+  final int paymentsCount;
+  final int clientsCount;
+
+  const ActiveSystemLogs({
+    super.key,
+    required this.appointmentsCount,
+    required this.paymentsCount,
+    required this.clientsCount,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -564,23 +962,23 @@ class ActiveSystemLogs extends StatelessWidget {
         border: Border.all(color: AppColors.surfaceContainer),
       ),
       child: Column(
-        children: const [
-          SystemLogsHeader(),
-          SystemLogsTableHeader(),
+        children: [
+          const SystemLogsHeader(),
+          const SystemLogsTableHeader(),
           SystemLogRow(
-            eventId: 'SR-7729-X',
-            service: 'Auth-Microservice-A',
-            timestamp: '2023-11-04 10:24:02',
+            eventId: 'DB-CLIENTS',
+            service: 'Client records',
+            count: clientsCount,
           ),
           SystemLogRow(
-            eventId: 'SR-7730-X',
-            service: 'Data-Validator-B',
-            timestamp: '2023-11-04 10:25:44',
+            eventId: 'DB-APPOINTMENTS',
+            service: 'Appointment records',
+            count: appointmentsCount,
           ),
           SystemLogRow(
-            eventId: 'SR-7731-X',
-            service: 'Reporting-Engine-Main',
-            timestamp: '2023-11-04 10:30:11',
+            eventId: 'DB-PAYMENTS',
+            service: 'Payment records',
+            count: paymentsCount,
           ),
         ],
       ),
@@ -607,7 +1005,7 @@ class SystemLogsHeader extends StatelessWidget {
           ),
           Spacer(),
           Text(
-            'VIEW ALL LOGS',
+            'LIVE DATABASE',
             style: TextStyle(
               color: AppColors.primary,
               fontSize: 10,
@@ -647,7 +1045,7 @@ class SystemLogsTableHeader extends StatelessWidget {
             flex: 3,
             child: Align(
               alignment: Alignment.centerRight,
-              child: TableHeaderText('TIMESTAMP'),
+              child: TableHeaderText('COUNT'),
             ),
           ),
         ],
@@ -678,13 +1076,13 @@ class TableHeaderText extends StatelessWidget {
 class SystemLogRow extends StatelessWidget {
   final String eventId;
   final String service;
-  final String timestamp;
+  final int count;
 
   const SystemLogRow({
     super.key,
     required this.eventId,
     required this.service,
-    required this.timestamp,
+    required this.count,
   });
 
   @override
@@ -723,7 +1121,7 @@ class SystemLogRow extends StatelessWidget {
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: const Text(
-                  'Operational',
+                  'Connected',
                   style: TextStyle(
                     color: AppColors.primary,
                     fontSize: 12,
@@ -746,7 +1144,7 @@ class SystemLogRow extends StatelessWidget {
           Expanded(
             flex: 3,
             child: Text(
-              timestamp,
+              '$count records',
               textAlign: TextAlign.right,
               style: const TextStyle(
                 color: AppColors.secondary,

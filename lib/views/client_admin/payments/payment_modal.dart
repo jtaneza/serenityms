@@ -14,8 +14,10 @@ class PaymentModal extends StatefulWidget {
 }
 
 class _PaymentModalState extends State<PaymentModal> {
+  String? selectedAppointmentId;
+  Map<String, dynamic>? selectedAppointment;
+
   final amountController = TextEditingController();
-  final customerController = TextEditingController();
   final referenceController = TextEditingController();
 
   bool isSaving = false;
@@ -25,16 +27,42 @@ class _PaymentModalState extends State<PaymentModal> {
   @override
   void dispose() {
     amountController.dispose();
-    customerController.dispose();
     referenceController.dispose();
     super.dispose();
   }
 
+  num _toNumber(dynamic value) {
+    if (value is num) return value;
+    return num.tryParse(value.toString()) ?? 0;
+  }
+
+  num _totalAmount(Map<String, dynamic> data) {
+    return _toNumber(data['amount'] ?? data['total'] ?? data['price'] ?? 0);
+  }
+
+  num _paidAmount(Map<String, dynamic> data) {
+    return _toNumber(data['paidAmount'] ?? data['downpayment'] ?? 0);
+  }
+
+  num _balance(Map<String, dynamic> data) {
+    final balance = _totalAmount(data) - _paidAmount(data);
+    return balance < 0 ? 0 : balance;
+  }
+
+  bool _canCollect(Map<String, dynamic> data) {
+    final status = (data['status'] ?? '').toString().toLowerCase();
+    final paymentStatus = (data['paymentStatus'] ?? '').toString().toLowerCase();
+
+    final serviceDone = status == 'completed' || status == 'approved';
+    final notFullPaid = !paymentStatus.contains('full');
+
+    return serviceDone && notFullPaid && _balance(data) > 0;
+  }
+
   Future<void> savePayment() async {
-    if (amountController.text.trim().isEmpty ||
-        customerController.text.trim().isEmpty) {
+    if (selectedAppointmentId == null || selectedAppointment == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please complete amount and customer.')),
+        const SnackBar(content: Text('Please select customer and service.')),
       );
       return;
     }
@@ -46,25 +74,66 @@ class _PaymentModalState extends State<PaymentModal> {
       return;
     }
 
+    final data = selectedAppointment!;
+    final amount = _toNumber(amountController.text.trim());
+
+    if (amount <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Amount must be greater than zero.')),
+      );
+      return;
+    }
+
     setState(() => isSaving = true);
 
-    await FirebaseFirestore.instance.collection('payments').add({
-      'customerName': customerController.text.trim(),
-      'service': '',
-      'amount': double.tryParse(amountController.text.trim()) ?? 0,
-      'method': widget.method,
-      'referenceNumber': isGCash ? referenceController.text.trim() : '',
-      'status': isGCash ? 'Verified' : 'Pending',
-      'createdAt': FieldValue.serverTimestamp(),
-    });
+    try {
+      final total = _totalAmount(data);
+      final oldPaid = _paidAmount(data);
+      final newPaid = oldPaid + amount;
+      final newBalance = total - newPaid;
 
-    if (!mounted) return;
+      await FirebaseFirestore.instance.collection('payments').add({
+        'appointmentId': selectedAppointmentId,
+        'customerId': data['customerId'] ?? '',
+        'customerName': data['customerName'] ?? '',
+        'serviceId': data['serviceId'] ?? '',
+        'service': data['serviceName'] ?? data['service'] ?? '',
+        'serviceName': data['serviceName'] ?? data['service'] ?? '',
+        'amount': amount,
+        'method': widget.method,
+        'paymentMethod': widget.method,
+        'referenceNumber': isGCash ? referenceController.text.trim() : '',
+        'gcashReferenceNumber': isGCash ? referenceController.text.trim() : '',
+        'status': 'Full Payment',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
 
-    Navigator.pop(context);
+      await FirebaseFirestore.instance
+          .collection('appointments')
+          .doc(selectedAppointmentId)
+          .update({
+        'paidAmount': newPaid,
+        'balance': newBalance <= 0 ? 0 : newBalance,
+        'paymentStatus': newBalance <= 0 ? 'Full Payment' : 'Partial Payment',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('${widget.method} payment recorded.')),
-    );
+      if (!mounted) return;
+
+      Navigator.pop(context);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${widget.method} payment recorded.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Payment failed: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => isSaving = false);
+    }
   }
 
   @override
@@ -73,17 +142,10 @@ class _PaymentModalState extends State<PaymentModal> {
       backgroundColor: Colors.transparent,
       insetPadding: const EdgeInsets.all(24),
       child: Container(
-        width: isGCash ? 520 : 620,
+        width: 620,
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(14),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.25),
-              blurRadius: 42,
-              offset: const Offset(0, 20),
-            ),
-          ],
         ),
         clipBehavior: Clip.antiAlias,
         child: Column(
@@ -91,43 +153,22 @@ class _PaymentModalState extends State<PaymentModal> {
           children: [
             Container(height: 5, color: const Color(0xFF00B894)),
             Padding(
-              padding: EdgeInsets.fromLTRB(
-                isGCash ? 34 : 44,
-                34,
-                isGCash ? 34 : 44,
-                28,
-              ),
+              padding: const EdgeInsets.fromLTRB(44, 34, 44, 28),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              isGCash
-                                  ? 'Confirm GCash Payment'
-                                  : 'Record Cash Payment',
-                              style: TextStyle(
-                                fontSize: isGCash ? 28 : 34,
-                                fontWeight: FontWeight.w900,
-                                color: const Color(0xFF161D1F),
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            Text(
-                              isGCash
-                                  ? 'Verify and record a digital wallet transaction.'
-                                  : 'Manually log a cash transaction into the system.',
-                              style: const TextStyle(
-                                color: Color(0xFF586062),
-                                fontSize: 15,
-                              ),
-                            ),
-                          ],
+                        child: Text(
+                          isGCash
+                              ? 'Confirm GCash Payment'
+                              : 'Record Cash Payment',
+                          style: const TextStyle(
+                            fontSize: 30,
+                            fontWeight: FontWeight.w900,
+                            color: Color(0xFF161D1F),
+                          ),
                         ),
                       ),
                       IconButton(
@@ -136,116 +177,92 @@ class _PaymentModalState extends State<PaymentModal> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 34),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Select a completed service with remaining balance. Amount will auto-fill.',
+                    style: TextStyle(
+                      color: Color(0xFF586062),
+                      fontSize: 15,
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+
+                  const _Label('SELECT CUSTOMER / SERVICE'),
+                  const SizedBox(height: 10),
+
+                  StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance
+                        .collection('appointments')
+                        .snapshots(),
+                    builder: (context, snapshot) {
+                      final docs = snapshot.data?.docs ?? [];
+
+                      final validDocs = docs.where((doc) {
+                        final data = doc.data() as Map<String, dynamic>;
+                        return _canCollect(data);
+                      }).toList();
+
+                      final dropdownItems = validDocs.map((doc) {
+                        final data = doc.data() as Map<String, dynamic>;
+                        final customer = data['customerName'] ?? 'Customer';
+                        final service = data['serviceName'] ?? 'Service';
+                        final balance = _balance(data);
+
+                        return DropdownMenuItem<String>(
+                          value: doc.id,
+                          child: Text(
+                            '$customer - $service | Balance: ₱${balance.toStringAsFixed(2)}',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        );
+                      }).toList();
+
+                      final safeValue = dropdownItems.any(
+                            (item) => item.value == selectedAppointmentId,
+                      )
+                          ? selectedAppointmentId
+                          : null;
+
+                      return DropdownButtonFormField<String>(
+                        value: safeValue,
+                        isExpanded: true,
+                        decoration: _dropdownDecoration(),
+                        items: dropdownItems,
+                        onChanged: (value) {
+                          if (value == null) return;
+
+                          final doc = validDocs.firstWhere((d) => d.id == value);
+                          final data = doc.data() as Map<String, dynamic>;
+                          final balance = _balance(data);
+
+                          setState(() {
+                            selectedAppointmentId = doc.id;
+                            selectedAppointment = data;
+                            amountController.text = balance.toStringAsFixed(2);
+                          });
+                        },
+                      );
+                    },
+                  ),
+
+                  const SizedBox(height: 24),
 
                   const _Label('AMOUNT (PHP)'),
                   const SizedBox(height: 10),
                   _AmountField(controller: amountController),
 
-                  const SizedBox(height: 28),
+                  if (selectedAppointment != null) ...[
+                    const SizedBox(height: 18),
+                    _BalanceSummary(data: selectedAppointment!),
+                  ],
 
                   if (isGCash) ...[
-                    const _Label('CUSTOMER NAME'),
-                    const SizedBox(height: 10),
-                    _InputBox(
-                      controller: customerController,
-                      hint: 'Enter customer name...',
-                    ),
                     const SizedBox(height: 24),
                     const _Label('REFERENCE NUMBER'),
                     const SizedBox(height: 10),
                     _InputBox(
                       controller: referenceController,
-                      hint: 'REF-00000000',
-                    ),
-                    const SizedBox(height: 24),
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE0FFF4),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: const Color(0xFFB6F5DF)),
-                      ),
-                      child: const Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(
-                            Icons.info_outline,
-                            size: 18,
-                            color: Color(0xFF006B55),
-                          ),
-                          SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              'Ensure the reference number matches exactly as shown on the GCash transaction receipt to prevent reconciliation errors.',
-                              style: TextStyle(
-                                color: Color(0xFF004233),
-                                fontSize: 12,
-                                height: 1.5,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ] else ...[
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const _Label('CUSTOMER NAME'),
-                              const SizedBox(height: 10),
-                              _InputBox(
-                                controller: customerController,
-                                hint: 'Enter customer name...',
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 24),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const _Label('TRANSACTION DATE'),
-                              const SizedBox(height: 10),
-                              Container(
-                                height: 52,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFEEF5F7),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Row(
-                                  children: [
-                                    const Icon(
-                                      Icons.calendar_today,
-                                      size: 18,
-                                      color: Color(0xFF586062),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Text(
-                                        DateTime.now()
-                                            .toString()
-                                            .substring(0, 16),
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          color: Color(0xFF586062),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
+                      hint: 'Enter GCash reference number',
                     ),
                   ],
 
@@ -257,9 +274,8 @@ class _PaymentModalState extends State<PaymentModal> {
                         child: SizedBox(
                           height: 56,
                           child: TextButton(
-                            onPressed: isSaving
-                                ? null
-                                : () => Navigator.pop(context),
+                            onPressed:
+                            isSaving ? null : () => Navigator.pop(context),
                             child: const Text(
                               'Cancel',
                               style: TextStyle(
@@ -283,15 +299,12 @@ class _PaymentModalState extends State<PaymentModal> {
                                   : Icons.payments_outlined,
                               size: 18,
                             ),
-                            label: FittedBox(
-                              fit: BoxFit.scaleDown,
-                              child: Text(
-                                isSaving
-                                    ? 'Saving...'
-                                    : isGCash
-                                    ? 'Confirm GCash Payment'
-                                    : 'Process Cash Payment',
-                              ),
+                            label: Text(
+                              isSaving
+                                  ? 'Saving...'
+                                  : isGCash
+                                  ? 'Confirm GCash Payment'
+                                  : 'Process Cash Payment',
                             ),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFF00A884),
@@ -303,9 +316,6 @@ class _PaymentModalState extends State<PaymentModal> {
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(8),
                               ),
-                              elevation: 8,
-                              shadowColor:
-                              const Color(0xFF00B894).withOpacity(0.35),
                             ),
                           ),
                         ),
@@ -315,38 +325,55 @@ class _PaymentModalState extends State<PaymentModal> {
                 ],
               ),
             ),
-            if (!isGCash)
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 44,
-                  vertical: 22,
-                ),
-                color: const Color(0xFFEEF5F7),
-                child: const Row(
-                  children: [
-                    Icon(Icons.security, size: 16, color: Color(0x99586062)),
-                    SizedBox(width: 10),
-                    Text(
-                      'SECURE LEDGER ENTRY',
-                      style: TextStyle(
-                        color: Color(0x99586062),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 1.5,
-                      ),
-                    ),
-                    Spacer(),
-                    SizedBox(
-                      width: 70,
-                      child: Divider(
-                        thickness: 4,
-                        color: Color(0xFFDDE3E6),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
           ],
+        ),
+      ),
+    );
+  }
+
+  InputDecoration _dropdownDecoration() {
+    return InputDecoration(
+      hintText: 'Select customer and service',
+      filled: true,
+      fillColor: const Color(0xFFEEF5F7),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: BorderSide.none,
+      ),
+    );
+  }
+}
+
+class _BalanceSummary extends StatelessWidget {
+  final Map<String, dynamic> data;
+
+  const _BalanceSummary({required this.data});
+
+  num _toNumber(dynamic value) {
+    if (value is num) return value;
+    return num.tryParse(value.toString()) ?? 0;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final total = _toNumber(data['amount']);
+    final paid = _toNumber(data['paidAmount'] ?? data['downpayment']);
+    final balance = total - paid;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE0FFF4),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFB6F5DF)),
+      ),
+      child: Text(
+        'Total: ₱${total.toStringAsFixed(2)}    Paid: ₱${paid.toStringAsFixed(2)}    Balance: ₱${balance.toStringAsFixed(2)}',
+        style: const TextStyle(
+          color: Color(0xFF004233),
+          fontWeight: FontWeight.w800,
         ),
       ),
     );
@@ -397,10 +424,6 @@ class _AmountField extends StatelessWidget {
         hintText: '0.00',
         filled: true,
         fillColor: const Color(0xFFE3E9EC),
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 18,
-          vertical: 20,
-        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide.none,

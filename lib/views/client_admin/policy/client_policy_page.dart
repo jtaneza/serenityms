@@ -29,9 +29,11 @@ class _ClientPolicyPageState extends State<ClientPolicyPage> {
   bool isLoading = true;
   bool isSaving = false;
 
-  final ruleRef =
-  FirebaseFirestore.instance.collection('booking_rules').doc('default');
-
+  DocumentReference<Map<String, dynamic>> get ruleRef {
+    return FirebaseFirestore.instance
+        .collection('booking_rules')
+        .doc(widget.user.tenantId);
+  }
   @override
   void initState() {
     super.initState();

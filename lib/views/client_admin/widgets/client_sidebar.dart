@@ -11,6 +11,8 @@ import '../staff/client_staff_page.dart';
 import '../payments/client_payments_page.dart';
 import '../policy/client_policy_page.dart';
 import '../reports/client_reports_page.dart';
+import '../dashboard/client_dashboard_page.dart';
+import '../settings/client_settings_page.dart';
 
 
 class ClientSidebar extends StatelessWidget {
@@ -138,6 +140,10 @@ class ClientSidebar extends StatelessWidget {
               onTap: () {
                 if (item.routeKey == currentRoute) return;
 
+                if (item.routeKey == 'dashboard') {
+                  _goToPage(context, ClientDashboardPage(user: user));
+                  return;
+                }
                 if (item.routeKey == 'services') {
                   _goToPage(context, ClientServicesPage(user: user));
                   return;
@@ -164,6 +170,9 @@ class ClientSidebar extends StatelessWidget {
                 if (item.routeKey == 'reports') {
                   _goToPage(context, ClientReportsPage(user: user));
                   return;
+                }
+                if (item.routeKey == 'settings') {
+                  _goToPage(context, ClientSettingsPage(user: user));
                 }
                 if (onMenuSelected != null) {
                   onMenuSelected!(item.routeKey);

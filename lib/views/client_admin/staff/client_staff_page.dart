@@ -33,7 +33,7 @@ class ClientStaffPage extends StatelessWidget {
         child: StreamBuilder<QuerySnapshot>(
           stream: FirebaseFirestore.instance
               .collection('staff')
-              .orderBy('createdAt', descending: true)
+              .where('isArchived', isEqualTo: false)
               .snapshots(),
           builder: (context, snapshot) {
             final docs = snapshot.data?.docs ?? [];
@@ -156,7 +156,7 @@ class ClientStaffPage extends StatelessWidget {
                                   showDialog(
                                     context: context,
                                     barrierDismissible: false,
-                                    builder: (_) => const AddStaffModal(),
+                                    builder: (_) => AddStaffModal(tenantId: user.tenantId),
                                   );
                                 },
                                 icon: const Icon(Icons.person_add),
@@ -226,6 +226,7 @@ class ClientStaffPage extends StatelessWidget {
                                   context: context,
                                   barrierDismissible: false,
                                   builder: (_) => AddStaffModal(
+                                    tenantId: user.tenantId,
                                     docId: doc.id,
                                     staffData: data,
                                   ),

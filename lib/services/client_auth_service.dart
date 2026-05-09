@@ -1,5 +1,5 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 
 class ClientAuthService {
@@ -13,51 +13,76 @@ class ClientAuthService {
     required String status,
     required int branches,
   }) async {
-
-    // create secondary isolated firebase app
-    final secondaryApp = await Firebase.initializeApp(
-      name: 'ClientCreator',
-      options: Firebase.app().options,
-    );
-
-    final FirebaseAuth secondaryAuth = FirebaseAuth.instanceFor(app: secondaryApp);
+    FirebaseApp? secondaryApp;
 
     try {
-      UserCredential credential =
-      await secondaryAuth.createUserWithEmailAndPassword(
+      secondaryApp = await Firebase.initializeApp(
+        name: 'ClientCreator_${DateTime.now().millisecondsSinceEpoch}',
+        options: Firebase.app().options,
+      );
+
+      final secondaryAuth = FirebaseAuth.instanceFor(app: secondaryApp);
+
+      final credential = await secondaryAuth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
 
       final uid = credential.user!.uid;
 
-      // save in clients collection
       await _firestore.collection('clients').doc(uid).set({
         'uid': uid,
+        'tenantId': uid,
         'businessName': businessName,
         'adminName': adminName,
+        'fullName': adminName,
         'email': email,
         'status': status,
         'branches': branches,
-        'role': 'client',
+        'role': 'client_admin',
+        'isActive': true,
+        'mustChangePassword': true,
+        'profileCompleted': false,
+        'businessLogo': '',
+        'businessAddress': '',
+        'businessPhone': '',
+        'operatingHours': {},
+        'gcashNumber': '',
+        'bookingPolicy': {},
+        'paymentPolicy': {},
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
         'archivedAt': null,
       });
 
-      // save in users collection for global auth role management
       await _firestore.collection('users').doc(uid).set({
         'uid': uid,
-        'name': adminName,
+        'tenantId': uid,
+        'businessName': businessName,
+        'fullName': adminName,
         'email': email,
-        'role': 'client',
-        'clientBusiness': businessName,
+        'status': status,
+        'branches': branches,
+        'role': 'client_admin',
+        'isActive': true,
+        'mustChangePassword': true,
+        'profileCompleted': false,
+        'businessLogo': '',
+        'businessAddress': '',
+        'businessPhone': '',
+        'operatingHours': {},
+        'gcashNumber': '',
+        'bookingPolicy': {},
+        'paymentPolicy': {},
         'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
       });
 
-    } finally {
       await secondaryAuth.signOut();
-      await secondaryApp.delete();
+    } finally {
+      if (secondaryApp != null) {
+        await secondaryApp.delete();
+      }
     }
   }
 
@@ -65,14 +90,16 @@ class ClientAuthService {
     required String email,
     required String password,
   }) async {
-    return await FirebaseAuth.instance.signInWithEmailAndPassword(
+    return FirebaseAuth.instance.signInWithEmailAndPassword(
       email: email,
       password: password,
     );
   }
 
-  static Future<DocumentSnapshot<Map<String, dynamic>>> getClientData(String uid) async {
-    return await _firestore.collection('clients').doc(uid).get();
+  static Future<DocumentSnapshot<Map<String, dynamic>>> getClientData(
+      String uid,
+      ) async {
+    return _firestore.collection('clients').doc(uid).get();
   }
 
   static Future<void> logout() async {

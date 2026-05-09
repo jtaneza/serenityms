@@ -1,4 +1,6 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+
 import '../../core/app_colors.dart';
 import '../../models/user_model.dart';
 import '../../widgets/admin_header.dart';
@@ -26,10 +28,10 @@ class SystemSettingsPage extends StatelessWidget {
             child: Column(
               children: [
                 AdminHeader(user: user),
-                const Expanded(
+                Expanded(
                   child: SingleChildScrollView(
-                    padding: EdgeInsets.fromLTRB(40, 36, 40, 40),
-                    child: _SystemSettingsContent(),
+                    padding: const EdgeInsets.fromLTRB(40, 36, 40, 40),
+                    child: _SystemSettingsContent(user: user),
                   ),
                 ),
               ],
@@ -41,47 +43,229 @@ class SystemSettingsPage extends StatelessWidget {
   }
 }
 
-class _SystemSettingsContent extends StatelessWidget {
-  const _SystemSettingsContent();
+class _SystemSettingsContent extends StatefulWidget {
+  final UserModel user;
+
+  const _SystemSettingsContent({
+    required this.user,
+  });
+
+  @override
+  State<_SystemSettingsContent> createState() => _SystemSettingsContentState();
+}
+
+class _SystemSettingsContentState extends State<_SystemSettingsContent> {
+  final FirebaseFirestore firestore = FirebaseFirestore.instance;
+  final TextEditingController systemNameController = TextEditingController();
+  final TextEditingController cancellationHoursController =
+  TextEditingController();
+  final TextEditingController bookingLimitController = TextEditingController();
+  final TextEditingController smtpServerController = TextEditingController();
+  final TextEditingController portController = TextEditingController();
+  final TextEditingController emailAddressController = TextEditingController();
+  final TextEditingController emailPasswordController = TextEditingController();
+
+  bool adminClientNotifications = true;
+  bool customerMobileNotifications = true;
+  bool isLoading = true;
+  bool isSaving = false;
+  DocumentReference<Map<String, dynamic>> get settingsRef {
+    return firestore.collection('system_settings').doc('global');
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    loadSettings();
+  }
+
+  @override
+  void dispose() {
+    systemNameController.dispose();
+    cancellationHoursController.dispose();
+    bookingLimitController.dispose();
+    smtpServerController.dispose();
+    portController.dispose();
+    emailAddressController.dispose();
+    emailPasswordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> loadSettings() async {
+    try {
+      final doc = await settingsRef.get();
+      final data = doc.data() ?? {};
+
+      systemNameController.text =
+          (data['systemName'] ?? 'Serenity Management & Services').toString();
+
+      cancellationHoursController.text =
+          (data['defaultCancellationHours'] ?? 24).toString();
+
+      bookingLimitController.text =
+          (data['defaultBookingLimitPerDay'] ?? 3).toString();
+
+      smtpServerController.text =
+          (data['smtpServer'] ?? 'smtp.serenity-ms.com').toString();
+
+      portController.text = (data['smtpPort'] ?? 587).toString();
+
+      emailAddressController.text =
+          (data['emailAddress'] ?? data['emailUsername'] ?? 'admin@serenity.com')
+              .toString();
+
+      emailPasswordController.text =
+          (data['emailPassword'] ?? 'Admin123').toString();
+
+      adminClientNotifications = data['adminClientNotifications'] ?? true;
+      customerMobileNotifications =
+          data['customerMobileNotifications'] ?? true;
+
+    } catch (_) {
+      systemNameController.text = 'Serenity Management & Services';
+      cancellationHoursController.text = '24';
+      bookingLimitController.text = '3';
+      smtpServerController.text = 'smtp.serenity-ms.com';
+      portController.text = '587';
+      emailAddressController.text = 'admin@serenity.com';
+      emailPasswordController.text = 'Admin123';
+      adminClientNotifications = true;
+      customerMobileNotifications = true;
+    }
+
+    if (!mounted) return;
+
+    setState(() {
+      isLoading = false;
+    });
+  }
+
+  Future<void> saveSettings() async {
+    setState(() {
+      isSaving = true;
+    });
+
+    final cancellationHours =
+        int.tryParse(cancellationHoursController.text.trim()) ?? 24;
+
+    final bookingLimit =
+        int.tryParse(bookingLimitController.text.trim()) ?? 3;
+
+    final smtpPort = int.tryParse(portController.text.trim()) ?? 587;
+
+    final data = {
+      'systemName': systemNameController.text.trim(),
+      'defaultCancellationHours': cancellationHours,
+      'defaultBookingLimitPerDay': bookingLimit,
+      'smtpServer': smtpServerController.text.trim(),
+      'smtpPort': smtpPort,
+      'emailAddress': emailAddressController.text.trim(),
+      'emailPassword': emailPasswordController.text.trim(),
+      'adminClientNotifications': adminClientNotifications,
+      'customerMobileNotifications': customerMobileNotifications,
+      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedBy': widget.user.uid,
+      'updatedByName': widget.user.fullName,
+    };
+
+    await settingsRef.set(data, SetOptions(merge: true));
+
+    if (!mounted) return;
+
+    setState(() {
+      isSaving = false;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('System settings saved.'),
+        backgroundColor: AppColors.primary,
+      ),
+    );
+  }
+
+  Future<void> discardChanges() async {
+    setState(() {
+      isLoading = true;
+    });
+
+    await loadSettings();
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (isLoading) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.only(top: 120),
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: const [
-        _SettingsHeader(),
-        SizedBox(height: 42),
+      children: [
+        const _SettingsHeader(),
+        const SizedBox(height: 42),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
               flex: 7,
-              child: _SystemBrandingCard(),
+              child: _SystemBrandingCard(
+                systemNameController: systemNameController,
+              ),
             ),
-            SizedBox(width: 32),
+            const SizedBox(width: 32),
             Expanded(
               flex: 5,
-              child: _GlobalRulesCard(),
+              child: _GlobalRulesCard(
+                cancellationHoursController: cancellationHoursController,
+                bookingLimitController: bookingLimitController,
+              ),
             ),
           ],
         ),
-        SizedBox(height: 32),
+        const SizedBox(height: 32),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
               flex: 8,
-              child: _EmailConfigurationCard(),
+              child: _EmailConfigurationCard(
+                smtpServerController: smtpServerController,
+                portController: portController,
+                emailAddressController: emailAddressController,
+                passwordController: emailPasswordController,
+              ),
             ),
-            SizedBox(width: 32),
+            const SizedBox(width: 32),
             Expanded(
               flex: 4,
-              child: _NotificationSettingsCard(),
+              child: _SystemNotificationSettingsCard(
+                adminClientNotifications: adminClientNotifications,
+                customerMobileNotifications: customerMobileNotifications,
+                onAdminClientChanged: (value) {
+                  setState(() {
+                    adminClientNotifications = value;
+                  });
+                },
+                onCustomerMobileChanged: (value) {
+                  setState(() {
+                    customerMobileNotifications = value;
+                  });
+                },
+              ),
             ),
           ],
         ),
-        SizedBox(height: 42),
-        _ActionButtons(),
+        const SizedBox(height: 42),
+        _ActionButtons(
+          isSaving: isSaving,
+          onDiscard: discardChanges,
+          onSave: saveSettings,
+        ),
       ],
     );
   }
@@ -109,7 +293,7 @@ class _SettingsHeader extends StatelessWidget {
           ),
           SizedBox(height: 14),
           Text(
-            'Configure the foundational parameters of the Serenity M&S ecosystem. Manage visual identity, communication protocols, and global operational logic.',
+            'Update the system name, booking rules, email setup, and notification settings.',
             style: TextStyle(
               color: AppColors.secondary,
               fontSize: 18,
@@ -162,12 +346,14 @@ class _SettingsCard extends StatelessWidget {
             children: [
               Icon(icon, color: AppColors.primary, size: 24),
               const SizedBox(width: 14),
-              Text(
-                title,
-                style: const TextStyle(
-                  color: AppColors.onSurface,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w900,
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    color: AppColors.onSurface,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
             ],
@@ -181,7 +367,11 @@ class _SettingsCard extends StatelessWidget {
 }
 
 class _SystemBrandingCard extends StatelessWidget {
-  const _SystemBrandingCard();
+  final TextEditingController systemNameController;
+
+  const _SystemBrandingCard({
+    required this.systemNameController,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -190,18 +380,25 @@ class _SystemBrandingCard extends StatelessWidget {
       title: 'System Branding',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: const [
+        children: [
           _LabeledInput(
             label: 'System Name',
-            value: 'Serenity Management & Services',
+            controller: systemNameController,
           ),
-          SizedBox(height: 28),
+          const SizedBox(height: 28),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(child: _UploadLogoBox()),
-              SizedBox(width: 32),
-              SizedBox(width: 210, child: _CurrentIdentityBox()),
+              const Expanded(
+                child: _DefaultLogoBox(),
+              ),
+              const SizedBox(width: 32),
+              SizedBox(
+                width: 210,
+                child: _CurrentIdentityBox(
+                  controller: systemNameController,
+                ),
+              ),
             ],
           ),
         ],
@@ -210,15 +407,15 @@ class _SystemBrandingCard extends StatelessWidget {
   }
 }
 
-class _UploadLogoBox extends StatelessWidget {
-  const _UploadLogoBox();
+class _DefaultLogoBox extends StatelessWidget {
+  const _DefaultLogoBox();
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _FieldLabel('Brand Logo'),
+        const _FieldLabel('Default Logo'),
         Container(
           height: 160,
           decoration: BoxDecoration(
@@ -234,22 +431,22 @@ class _UploadLogoBox extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
-                  Icons.upload_file,
-                  color: AppColors.outlineVariant,
-                  size: 42,
+                  Icons.spa,
+                  color: AppColors.primary,
+                  size: 58,
                 ),
                 SizedBox(height: 10),
                 Text(
-                  'Click to upload or drag & drop',
+                  'Default system logo',
                   style: TextStyle(
                     color: AppColors.secondary,
                     fontSize: 14,
-                    fontWeight: FontWeight.w500,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
                 SizedBox(height: 4),
                 Text(
-                  'SVG, PNG, or WEBP (Max 2MB)',
+                  'No Firebase Storage needed',
                   style: TextStyle(
                     color: AppColors.outlineVariant,
                     fontSize: 12,
@@ -265,38 +462,89 @@ class _UploadLogoBox extends StatelessWidget {
 }
 
 class _CurrentIdentityBox extends StatelessWidget {
-  const _CurrentIdentityBox();
+  final TextEditingController controller;
+
+  const _CurrentIdentityBox({
+    required this.controller,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const _FieldLabel('Current Identity'),
-        Container(
-          height: 160,
-          decoration: BoxDecoration(
-            color: AppColors.inverseSurface,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: const Center(
-            child: Text(
-              'Serenity',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 26,
-                fontWeight: FontWeight.w900,
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        final text =
+        controller.text.trim().isEmpty ? 'Serenity' : controller.text.trim();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const _FieldLabel('Current Identity'),
+            Container(
+              height: 160,
+              decoration: BoxDecoration(
+                color: AppColors.inverseSurface,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.spa,
+                        color: Colors.white,
+                        size: 28,
+                      ),
+                      const SizedBox(height: 10),
+                      _IdentityText(text: text),
+                    ],
+                  ),
+                ),
               ),
             ),
-          ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _IdentityText extends StatelessWidget {
+  final String text;
+
+  const _IdentityText({
+    required this.text,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Flexible(
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        overflow: TextOverflow.ellipsis,
+        maxLines: 4,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 18,
+          fontWeight: FontWeight.w900,
+          height: 1.15,
         ),
-      ],
+      ),
     );
   }
 }
 
 class _GlobalRulesCard extends StatelessWidget {
-  const _GlobalRulesCard();
+  final TextEditingController cancellationHoursController;
+  final TextEditingController bookingLimitController;
+
+  const _GlobalRulesCard({
+    required this.cancellationHoursController,
+    required this.bookingLimitController,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -305,19 +553,19 @@ class _GlobalRulesCard extends StatelessWidget {
       title: 'Global Rules',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: const [
+        children: [
           _NumberInputWithSuffix(
             label: 'Default Cancellation Policy',
-            value: '24',
+            controller: cancellationHoursController,
             suffix: 'Hours',
-            helper: 'Minimum window for clients to cancel without penalty.',
+            helper: 'Minimum time before customers can cancel without penalty.',
           ),
-          SizedBox(height: 30),
+          const SizedBox(height: 30),
           _NumberInputWithSuffix(
             label: 'Default Booking Limits',
-            value: '3',
+            controller: bookingLimitController,
             suffix: 'Per Day',
-            helper: 'Maximum active appointments allowed per user/day.',
+            helper: 'Maximum booking allowed per customer each day.',
           ),
         ],
       ),
@@ -326,7 +574,17 @@ class _GlobalRulesCard extends StatelessWidget {
 }
 
 class _EmailConfigurationCard extends StatelessWidget {
-  const _EmailConfigurationCard();
+  final TextEditingController smtpServerController;
+  final TextEditingController portController;
+  final TextEditingController emailAddressController;
+  final TextEditingController passwordController;
+
+  const _EmailConfigurationCard({
+    required this.smtpServerController,
+    required this.portController,
+    required this.emailAddressController,
+    required this.passwordController,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -334,36 +592,39 @@ class _EmailConfigurationCard extends StatelessWidget {
       icon: Icons.alternate_email,
       title: 'Email Configuration',
       child: Column(
-        children: const [
+        children: [
           Row(
             children: [
               Expanded(
                 child: _LabeledInput(
                   label: 'SMTP Server',
-                  value: 'smtp.serenity-ms.com',
+                  controller: smtpServerController,
                 ),
               ),
-              SizedBox(width: 24),
+              const SizedBox(width: 24),
               Expanded(
                 child: _LabeledInput(
                   label: 'Port',
-                  value: '587',
+                  controller: portController,
+                  keyboardType: TextInputType.number,
                 ),
               ),
             ],
           ),
-          SizedBox(height: 24),
+          const SizedBox(height: 24),
           Row(
             children: [
               Expanded(
                 child: _LabeledInput(
-                  label: 'Username',
-                  value: 'admin@serenity-ms.com',
+                  label: 'Email Address',
+                  controller: emailAddressController,
                 ),
               ),
-              SizedBox(width: 24),
+              const SizedBox(width: 24),
               Expanded(
-                child: _PasswordInput(),
+                child: _PasswordInput(
+                  controller: passwordController,
+                ),
               ),
             ],
           ),
@@ -373,45 +634,38 @@ class _EmailConfigurationCard extends StatelessWidget {
   }
 }
 
-class _NotificationSettingsCard extends StatefulWidget {
-  const _NotificationSettingsCard();
+class _SystemNotificationSettingsCard extends StatelessWidget {
+  final bool adminClientNotifications;
+  final bool customerMobileNotifications;
+  final ValueChanged<bool> onAdminClientChanged;
+  final ValueChanged<bool> onCustomerMobileChanged;
 
-  @override
-  State<_NotificationSettingsCard> createState() =>
-      _NotificationSettingsCardState();
-}
-
-class _NotificationSettingsCardState extends State<_NotificationSettingsCard> {
-  bool emailAlerts = true;
-  bool smsAlerts = false;
+  const _SystemNotificationSettingsCard({
+    required this.adminClientNotifications,
+    required this.customerMobileNotifications,
+    required this.onAdminClientChanged,
+    required this.onCustomerMobileChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
     return _SettingsCard(
-      icon: Icons.notifications_active,
-      title: 'Notification Settings',
+      icon: Icons.settings_suggest,
+      title: 'System Settings',
       child: Column(
         children: [
           _NotificationTile(
-            title: 'System-wide Email Alerts',
-            subtitle: 'Global delivery for all transaction logs',
-            value: emailAlerts,
-            onChanged: (value) {
-              setState(() {
-                emailAlerts = value;
-              });
-            },
+            title: 'Admin and Client System Alerts',
+            subtitle: 'Show dashboard alerts for admin and client accounts.',
+            value: adminClientNotifications,
+            onChanged: onAdminClientChanged,
           ),
           const SizedBox(height: 22),
           _NotificationTile(
-            title: 'System-wide SMS Alerts',
-            subtitle: 'Critical priority alerts via mobile gateway',
-            value: smsAlerts,
-            onChanged: (value) {
-              setState(() {
-                smsAlerts = value;
-              });
-            },
+            title: 'Customer Mobile App Alerts',
+            subtitle: 'Show booking and payment alerts in the mobile app.',
+            value: customerMobileNotifications,
+            onChanged: onCustomerMobileChanged,
           ),
         ],
       ),
@@ -482,11 +736,13 @@ class _NotificationTile extends StatelessWidget {
 
 class _LabeledInput extends StatelessWidget {
   final String label;
-  final String value;
+  final TextEditingController controller;
+  final TextInputType? keyboardType;
 
   const _LabeledInput({
     required this.label,
-    required this.value,
+    required this.controller,
+    this.keyboardType,
   });
 
   @override
@@ -496,7 +752,8 @@ class _LabeledInput extends StatelessWidget {
       children: [
         _FieldLabel(label),
         TextFormField(
-          initialValue: value,
+          controller: controller,
+          keyboardType: keyboardType,
           decoration: _inputDecoration(),
           style: const TextStyle(
             color: AppColors.onSurface,
@@ -509,7 +766,11 @@ class _LabeledInput extends StatelessWidget {
 }
 
 class _PasswordInput extends StatefulWidget {
-  const _PasswordInput();
+  final TextEditingController controller;
+
+  const _PasswordInput({
+    required this.controller,
+  });
 
   @override
   State<_PasswordInput> createState() => _PasswordInputState();
@@ -525,7 +786,7 @@ class _PasswordInputState extends State<_PasswordInput> {
       children: [
         const _FieldLabel('Password'),
         TextFormField(
-          initialValue: 'admin123456',
+          controller: widget.controller,
           obscureText: obscure,
           decoration: _inputDecoration().copyWith(
             suffixIcon: IconButton(
@@ -553,13 +814,13 @@ class _PasswordInputState extends State<_PasswordInput> {
 
 class _NumberInputWithSuffix extends StatelessWidget {
   final String label;
-  final String value;
+  final TextEditingController controller;
   final String suffix;
   final String helper;
 
   const _NumberInputWithSuffix({
     required this.label,
-    required this.value,
+    required this.controller,
     required this.suffix,
     required this.helper,
   });
@@ -573,7 +834,7 @@ class _NumberInputWithSuffix extends StatelessWidget {
         Stack(
           children: [
             TextFormField(
-              initialValue: value,
+              controller: controller,
               keyboardType: TextInputType.number,
               decoration: _inputDecoration().copyWith(
                 contentPadding: const EdgeInsets.fromLTRB(16, 16, 86, 16),
@@ -658,7 +919,15 @@ InputDecoration _inputDecoration() {
 }
 
 class _ActionButtons extends StatelessWidget {
-  const _ActionButtons();
+  final bool isSaving;
+  final VoidCallback onDiscard;
+  final VoidCallback onSave;
+
+  const _ActionButtons({
+    required this.isSaving,
+    required this.onDiscard,
+    required this.onSave,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -666,7 +935,7 @@ class _ActionButtons extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
         TextButton(
-          onPressed: () {},
+          onPressed: isSaving ? null : onDiscard,
           style: TextButton.styleFrom(
             padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 18),
           ),
@@ -695,11 +964,20 @@ class _ActionButtons extends StatelessWidget {
             ],
           ),
           child: TextButton.icon(
-            onPressed: () {},
-            icon: const Icon(Icons.save, color: Colors.white),
-            label: const Text(
-              'Apply Global Changes',
-              style: TextStyle(
+            onPressed: isSaving ? null : onSave,
+            icon: isSaving
+                ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            )
+                : const Icon(Icons.save, color: Colors.white),
+            label: Text(
+              isSaving ? 'Saving...' : 'Apply Global Changes',
+              style: const TextStyle(
                 color: Colors.white,
                 fontSize: 15,
                 fontWeight: FontWeight.w900,

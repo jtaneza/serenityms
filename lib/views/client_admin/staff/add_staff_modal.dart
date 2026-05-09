@@ -2,11 +2,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 class AddStaffModal extends StatefulWidget {
+  final String tenantId;
   final String? docId;
   final Map<String, dynamic>? staffData;
 
   const AddStaffModal({
     super.key,
+    required this.tenantId,
     this.docId,
     this.staffData,
   });
@@ -91,6 +93,13 @@ class _AddStaffModalState extends State<AddStaffModal> {
   }
 
   Future<void> saveStaff() async {
+    if (widget.tenantId.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Tenant ID is missing. Please login again.')),
+      );
+      return;
+    }
+
     if (nameController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter full name')),
@@ -108,6 +117,7 @@ class _AddStaffModalState extends State<AddStaffModal> {
     setState(() => isSaving = true);
 
     final data = {
+      'tenantId': widget.tenantId,
       'name': nameController.text.trim(),
       'role': specialization,
       'specialization': specialization,
@@ -118,6 +128,7 @@ class _AddStaffModalState extends State<AddStaffModal> {
       'schedule': '${selectedDays.join(', ')}, $startTime - $endTime',
       'status': staffStatus,
       'isAway': staffStatus != 'Active',
+      'isArchived': false,
       'rating': 0,
       'updatedAt': FieldValue.serverTimestamp(),
       if (widget.docId == null) 'createdAt': FieldValue.serverTimestamp(),
@@ -128,19 +139,19 @@ class _AddStaffModalState extends State<AddStaffModal> {
     if (widget.docId == null) {
       await collection.add(data);
     } else {
-      await collection.doc(widget.docId).update(data);
+      await collection.doc(widget.docId).set(data, SetOptions(merge: true));
     }
 
     if (!mounted) return;
 
-    Navigator.pop(context);
+    setState(() => isSaving = false);
+
+    Navigator.pop(context, true);
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          widget.docId == null
-              ? 'Staff member added'
-              : 'Staff member updated',
+          widget.docId == null ? 'Staff member added' : 'Staff member updated',
         ),
       ),
     );
@@ -219,7 +230,7 @@ class _AddStaffModalState extends State<AddStaffModal> {
                     ),
                   ),
                   IconButton(
-                    onPressed: () => Navigator.pop(context),
+                    onPressed: isSaving ? null : () => Navigator.pop(context),
                     icon: const Icon(Icons.close),
                     style: IconButton.styleFrom(
                       backgroundColor: const Color(0xFFE9EFF2),

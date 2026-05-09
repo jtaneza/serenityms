@@ -1,4 +1,6 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+
 import '../../core/app_colors.dart';
 import '../../models/user_model.dart';
 import '../../widgets/admin_header.dart';
@@ -20,50 +22,298 @@ class _SystemReportsPageState extends State<SystemReportsPage> {
   String searchQuery = '';
   String selectedClient = 'All Network Partners';
 
-  final List<ReportRowModel> reports = const [
-    ReportRowModel(
-      clientName: 'Serene Wellness Spas',
-      clientId: 'SW-10294',
-      reportType: 'Subscription Revenue',
-      generatedDate: 'Oct 24, 2023',
-      revenueValue: '\$12,450.00',
-      status: ReportStatus.processed,
-    ),
-    ReportRowModel(
-      clientName: 'Azure Retreat Centers',
-      clientId: 'ARC-8821',
-      reportType: 'Client Revenue',
-      generatedDate: 'Oct 22, 2023',
-      revenueValue: '\$8,920.50',
-      status: ReportStatus.processed,
-    ),
-    ReportRowModel(
-      clientName: 'Mountain Peak Medispa',
-      clientId: 'MPM-4452',
-      reportType: 'Appointment Report',
-      generatedDate: 'Oct 21, 2023',
-      revenueValue: 'N/A',
-      status: ReportStatus.draft,
-    ),
-    ReportRowModel(
-      clientName: 'Global Skin Experts',
-      clientId: 'GSE-9912',
-      reportType: 'Usage Report',
-      generatedDate: 'Oct 19, 2023',
-      revenueValue: 'N/A',
-      status: ReportStatus.processed,
-    ),
-    ReportRowModel(
-      clientName: 'Urban Oasis Spa',
-      clientId: 'UOS-2311',
-      reportType: 'Subscription Revenue',
-      generatedDate: 'Oct 18, 2023',
-      revenueValue: '\$4,500.00',
-      status: ReportStatus.processed,
-    ),
-  ];
+  Stream<QuerySnapshot> get clientsStream {
+    return FirebaseFirestore.instance.collection('clients').snapshots();
+  }
 
-  List<ReportRowModel> get filteredReports {
+  Stream<QuerySnapshot> get usersStream {
+    return FirebaseFirestore.instance.collection('users').snapshots();
+  }
+
+  Stream<QuerySnapshot> get appointmentsStream {
+    return FirebaseFirestore.instance.collection('appointments').snapshots();
+  }
+
+  Stream<QuerySnapshot> get paymentsStream {
+    return FirebaseFirestore.instance.collection('payments').snapshots();
+  }
+
+  Stream<QuerySnapshot> get subscriptionPaymentsStream {
+    return FirebaseFirestore.instance
+        .collection('subscription_payments')
+        .snapshots();
+  }
+
+  num toNumber(dynamic value) {
+    if (value is num) return value;
+    return num.tryParse(value.toString()) ?? 0;
+  }
+
+  DateTime? toDate(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    return null;
+  }
+
+  String formatDate(DateTime? date) {
+    if (date == null) return 'No date';
+
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+
+    return '${months[date.month - 1]} ${date.day}, ${date.year}';
+  }
+
+  bool isPaid(Map<String, dynamic> data) {
+    final status = (data['status'] ?? data['paymentStatus'] ?? '')
+        .toString()
+        .toLowerCase();
+
+    return status.contains('paid') ||
+        status.contains('verified') ||
+        status.contains('full payment') ||
+        status.contains('completed') ||
+        status.contains('active');
+  }
+
+  List<ClientModel> buildClients(
+      List<QueryDocumentSnapshot> clientDocs,
+      List<QueryDocumentSnapshot> userDocs,
+      ) {
+    final clients = <ClientModel>[];
+
+    for (final doc in clientDocs) {
+      final data = doc.data() as Map<String, dynamic>;
+
+      clients.add(
+        ClientModel(
+          id: doc.id,
+          name: (data['businessName'] ??
+              data['clientBusiness'] ??
+              data['companyName'] ??
+              data['fullName'] ??
+              'Client')
+              .toString(),
+          email: (data['email'] ?? data['ownerEmail'] ?? '').toString(),
+        ),
+      );
+    }
+
+    if (clients.isEmpty) {
+      for (final doc in userDocs) {
+        final data = doc.data() as Map<String, dynamic>;
+        final role = (data['role'] ?? '').toString().toLowerCase();
+
+        if (role.contains('client')) {
+          clients.add(
+            ClientModel(
+              id: doc.id,
+              name: (data['businessName'] ??
+                  data['fullName'] ??
+                  data['email'] ??
+                  'Client')
+                  .toString(),
+              email: (data['email'] ?? '').toString(),
+            ),
+          );
+        }
+      }
+    }
+
+    return clients;
+  }
+
+  List<ReportRowModel> buildReports({
+    required List<ClientModel> clients,
+    required List<QueryDocumentSnapshot> appointments,
+    required List<QueryDocumentSnapshot> payments,
+    required List<QueryDocumentSnapshot> subscriptions,
+  }) {
+    final reports = <ReportRowModel>[];
+
+    final totalPaymentRevenue = payments.fold<num>(0, (sum, doc) {
+      final data = doc.data() as Map<String, dynamic>;
+      return isPaid(data) ? sum + toNumber(data['amount']) : sum;
+    });
+
+    final totalSubscriptionRevenue = subscriptions.fold<num>(0, (sum, doc) {
+      final data = doc.data() as Map<String, dynamic>;
+      return isPaid(data) ? sum + toNumber(data['amount']) : sum;
+    });
+
+    final appointmentCount = appointments.length;
+    final paymentCount = payments.length + subscriptions.length;
+
+    if (clients.isEmpty) {
+      reports.add(
+        ReportRowModel(
+          clientName: 'System Database',
+          clientId: 'SYSTEM',
+          reportType: 'Usage Report',
+          generatedDate: formatDate(DateTime.now()),
+          revenueValue: '₱${(totalPaymentRevenue + totalSubscriptionRevenue).toStringAsFixed(2)}',
+          status: ReportStatus.processed,
+        ),
+      );
+
+      return reports;
+    }
+
+    for (final client in clients) {
+      final clientAppointments = appointments.where((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+
+        final clientKey = (data['tenantId'] ??
+            data['clientId'] ??
+            data['createdBy'] ??
+            data['businessId'] ??
+            '')
+            .toString();
+
+        if (clientKey.isEmpty) return clients.length == 1;
+        return clientKey == client.id || clientKey == client.email;
+      }).toList();
+
+      final clientPayments = payments.where((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+
+        final clientKey = (data['tenantId'] ??
+            data['clientId'] ??
+            data['createdBy'] ??
+            data['businessId'] ??
+            '')
+            .toString();
+
+        if (clientKey.isEmpty) return clients.length == 1;
+        return clientKey == client.id || clientKey == client.email;
+      }).toList();
+
+      final clientSubscriptions = subscriptions.where((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+
+        final clientKey =
+        (data['clientId'] ?? data['tenantId'] ?? data['userId'] ?? '')
+            .toString();
+
+        if (clientKey.isEmpty) return clients.length == 1;
+        return clientKey == client.id || clientKey == client.email;
+      }).toList();
+
+      final clientRevenue = clientPayments.fold<num>(0, (sum, doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        return isPaid(data) ? sum + toNumber(data['amount']) : sum;
+      }) +
+          clientSubscriptions.fold<num>(0, (sum, doc) {
+            final data = doc.data() as Map<String, dynamic>;
+            return isPaid(data) ? sum + toNumber(data['amount']) : sum;
+          });
+
+      final latestDate = latestDateFor(
+        clientAppointments,
+        clientPayments,
+        clientSubscriptions,
+      );
+
+      reports.add(
+        ReportRowModel(
+          clientName: client.name,
+          clientId: client.id,
+          reportType: 'Client Revenue Report',
+          generatedDate: formatDate(latestDate ?? DateTime.now()),
+          revenueValue: '₱${clientRevenue.toStringAsFixed(2)}',
+          status: ReportStatus.processed,
+        ),
+      );
+
+      reports.add(
+        ReportRowModel(
+          clientName: client.name,
+          clientId: client.id,
+          reportType: 'Appointment Report',
+          generatedDate: formatDate(latestDate ?? DateTime.now()),
+          revenueValue: '${clientAppointments.length} bookings',
+          status: clientAppointments.isEmpty
+              ? ReportStatus.draft
+              : ReportStatus.processed,
+        ),
+      );
+
+      reports.add(
+        ReportRowModel(
+          clientName: client.name,
+          clientId: client.id,
+          reportType: 'Subscription Revenue Report',
+          generatedDate: formatDate(latestDate ?? DateTime.now()),
+          revenueValue:
+          '₱${clientSubscriptions.fold<num>(0, (sum, doc) {
+            final data = doc.data() as Map<String, dynamic>;
+            return isPaid(data) ? sum + toNumber(data['amount']) : sum;
+          }).toStringAsFixed(2)}',
+          status: ReportStatus.processed,
+        ),
+      );
+    }
+
+    reports.add(
+      ReportRowModel(
+        clientName: 'All Network Partners',
+        clientId: 'SYSTEM',
+        reportType: 'Usage Report',
+        generatedDate: formatDate(DateTime.now()),
+        revenueValue: '$appointmentCount bookings / $paymentCount payments',
+        status: ReportStatus.processed,
+      ),
+    );
+
+    reports.sort((a, b) => b.generatedDate.compareTo(a.generatedDate));
+
+    return reports;
+  }
+
+  DateTime? latestDateFor(
+      List<QueryDocumentSnapshot> appointments,
+      List<QueryDocumentSnapshot> payments,
+      List<QueryDocumentSnapshot> subscriptions,
+      ) {
+    final dates = <DateTime>[];
+
+    for (final doc in appointments) {
+      final data = doc.data() as Map<String, dynamic>;
+      final date = toDate(data['updatedAt'] ?? data['createdAt'] ?? data['appointmentDate']);
+      if (date != null) dates.add(date);
+    }
+
+    for (final doc in payments) {
+      final data = doc.data() as Map<String, dynamic>;
+      final date = toDate(data['updatedAt'] ?? data['createdAt']);
+      if (date != null) dates.add(date);
+    }
+
+    for (final doc in subscriptions) {
+      final data = doc.data() as Map<String, dynamic>;
+      final date = toDate(data['updatedAt'] ?? data['createdAt']);
+      if (date != null) dates.add(date);
+    }
+
+    if (dates.isEmpty) return null;
+
+    dates.sort((a, b) => b.compareTo(a));
+    return dates.first;
+  }
+
+  List<ReportRowModel> filterReports(List<ReportRowModel> reports) {
     final query = searchQuery.trim().toLowerCase();
 
     return reports.where((report) {
@@ -96,24 +346,102 @@ class _SystemReportsPageState extends State<SystemReportsPage> {
               children: [
                 AdminHeader(user: widget.user),
                 Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(40, 36, 40, 40),
-                    child: _SystemReportsContent(
-                      reports: filteredReports,
-                      totalReports: reports.length,
-                      selectedClient: selectedClient,
-                      onClientChanged: (value) {
-                        if (value == null) return;
-                        setState(() {
-                          selectedClient = value;
-                        });
-                      },
-                      onSearchChanged: (value) {
-                        setState(() {
-                          searchQuery = value;
-                        });
-                      },
-                    ),
+                  child: StreamBuilder<QuerySnapshot>(
+                    stream: clientsStream,
+                    builder: (context, clientSnapshot) {
+                      return StreamBuilder<QuerySnapshot>(
+                        stream: usersStream,
+                        builder: (context, userSnapshot) {
+                          return StreamBuilder<QuerySnapshot>(
+                            stream: appointmentsStream,
+                            builder: (context, appointmentSnapshot) {
+                              return StreamBuilder<QuerySnapshot>(
+                                stream: paymentsStream,
+                                builder: (context, paymentSnapshot) {
+                                  return StreamBuilder<QuerySnapshot>(
+                                    stream: subscriptionPaymentsStream,
+                                    builder: (context, subscriptionSnapshot) {
+                                      final isWaiting =
+                                          clientSnapshot.connectionState ==
+                                              ConnectionState.waiting ||
+                                              userSnapshot.connectionState ==
+                                                  ConnectionState.waiting ||
+                                              appointmentSnapshot
+                                                  .connectionState ==
+                                                  ConnectionState.waiting ||
+                                              paymentSnapshot.connectionState ==
+                                                  ConnectionState.waiting ||
+                                              subscriptionSnapshot
+                                                  .connectionState ==
+                                                  ConnectionState.waiting;
+
+                                      if (isWaiting) {
+                                        return const Center(
+                                          child: CircularProgressIndicator(),
+                                        );
+                                      }
+
+                                      final clientDocs =
+                                          clientSnapshot.data?.docs ?? [];
+                                      final userDocs =
+                                          userSnapshot.data?.docs ?? [];
+                                      final appointmentDocs =
+                                          appointmentSnapshot.data?.docs ?? [];
+                                      final paymentDocs =
+                                          paymentSnapshot.data?.docs ?? [];
+                                      final subscriptionDocs =
+                                          subscriptionSnapshot.data?.docs ?? [];
+
+                                      final clients = buildClients(
+                                        clientDocs,
+                                        userDocs,
+                                      );
+
+                                      final reports = buildReports(
+                                        clients: clients,
+                                        appointments: appointmentDocs,
+                                        payments: paymentDocs,
+                                        subscriptions: subscriptionDocs,
+                                      );
+
+                                      final filteredReports =
+                                      filterReports(reports);
+
+                                      return SingleChildScrollView(
+                                        padding: const EdgeInsets.fromLTRB(
+                                          40,
+                                          36,
+                                          40,
+                                          40,
+                                        ),
+                                        child: _SystemReportsContent(
+                                          reports: filteredReports,
+                                          totalReports: reports.length,
+                                          clients: clients,
+                                          selectedClient: selectedClient,
+                                          onClientChanged: (value) {
+                                            if (value == null) return;
+
+                                            setState(() {
+                                              selectedClient = value;
+                                            });
+                                          },
+                                          onSearchChanged: (value) {
+                                            setState(() {
+                                              searchQuery = value;
+                                            });
+                                          },
+                                        ),
+                                      );
+                                    },
+                                  );
+                                },
+                              );
+                            },
+                          );
+                        },
+                      );
+                    },
                   ),
                 ),
               ],
@@ -128,6 +456,18 @@ class _SystemReportsPageState extends State<SystemReportsPage> {
 enum ReportStatus {
   processed,
   draft,
+}
+
+class ClientModel {
+  final String id;
+  final String name;
+  final String email;
+
+  const ClientModel({
+    required this.id,
+    required this.name,
+    required this.email,
+  });
 }
 
 class ReportRowModel {
@@ -151,6 +491,7 @@ class ReportRowModel {
 class _SystemReportsContent extends StatelessWidget {
   final List<ReportRowModel> reports;
   final int totalReports;
+  final List<ClientModel> clients;
   final String selectedClient;
   final ValueChanged<String?> onClientChanged;
   final ValueChanged<String> onSearchChanged;
@@ -158,6 +499,7 @@ class _SystemReportsContent extends StatelessWidget {
   const _SystemReportsContent({
     required this.reports,
     required this.totalReports,
+    required this.clients,
     required this.selectedClient,
     required this.onClientChanged,
     required this.onSearchChanged,
@@ -175,6 +517,7 @@ class _SystemReportsContent extends StatelessWidget {
         _ReportsDataPanel(
           reports: reports,
           totalReports: totalReports,
+          clients: clients,
           selectedClient: selectedClient,
           onClientChanged: onClientChanged,
           onSearchChanged: onSearchChanged,
@@ -206,7 +549,7 @@ class _ReportsHeader extends StatelessWidget {
           ),
           SizedBox(height: 14),
           Text(
-            'Access and filter detailed reports across your entire client network with clinical precision and real-time data sync.',
+            'Access and filter detailed reports across your entire client network using live Firestore data.',
             style: TextStyle(
               color: AppColors.secondary,
               fontSize: 18,
@@ -232,7 +575,7 @@ class _ReportCategoryCards extends StatelessWidget {
             icon: Icons.account_balance_wallet,
             title: 'Subscription Revenue Report',
             description:
-            'Comprehensive summary of ongoing SaaS income streams and recurring billing health.',
+            'Summary of subscription payments and active billing records.',
             liveView: true,
           ),
         ),
@@ -242,7 +585,7 @@ class _ReportCategoryCards extends StatelessWidget {
             icon: Icons.storefront,
             title: 'Client Revenue Report',
             description:
-            'Granular breakdown of earnings generated from individual spa partner accounts and services.',
+            'Breakdown of earnings generated from each spa client account.',
           ),
         ),
         SizedBox(width: 24),
@@ -251,7 +594,7 @@ class _ReportCategoryCards extends StatelessWidget {
             icon: Icons.calendar_month,
             title: 'Appointment Report',
             description:
-            'Network-wide booking statistics, including high-traffic periods and cancellation rates.',
+            'Network-wide booking statistics and appointment activity.',
           ),
         ),
         SizedBox(width: 24),
@@ -260,7 +603,7 @@ class _ReportCategoryCards extends StatelessWidget {
             icon: Icons.insights,
             title: 'Usage Report',
             description:
-            'Real-time system activity monitors and platform engagement metrics across all nodes.',
+            'System activity based on bookings, payments, and records.',
           ),
         ),
       ],
@@ -363,6 +706,7 @@ class _ReportCategoryCard extends StatelessWidget {
 class _ReportsDataPanel extends StatelessWidget {
   final List<ReportRowModel> reports;
   final int totalReports;
+  final List<ClientModel> clients;
   final String selectedClient;
   final ValueChanged<String?> onClientChanged;
   final ValueChanged<String> onSearchChanged;
@@ -370,6 +714,7 @@ class _ReportsDataPanel extends StatelessWidget {
   const _ReportsDataPanel({
     required this.reports,
     required this.totalReports,
+    required this.clients,
     required this.selectedClient,
     required this.onClientChanged,
     required this.onSearchChanged,
@@ -386,6 +731,7 @@ class _ReportsDataPanel extends StatelessWidget {
       child: Column(
         children: [
           _ReportsFilterBar(
+            clients: clients,
             selectedClient: selectedClient,
             onClientChanged: onClientChanged,
             onSearchChanged: onSearchChanged,
@@ -402,11 +748,13 @@ class _ReportsDataPanel extends StatelessWidget {
 }
 
 class _ReportsFilterBar extends StatelessWidget {
+  final List<ClientModel> clients;
   final String selectedClient;
   final ValueChanged<String?> onClientChanged;
   final ValueChanged<String> onSearchChanged;
 
   const _ReportsFilterBar({
+    required this.clients,
     required this.selectedClient,
     required this.onClientChanged,
     required this.onSearchChanged,
@@ -418,6 +766,7 @@ class _ReportsFilterBar extends StatelessWidget {
       children: [
         Expanded(
           child: _ClientDropdown(
+            clients: clients,
             selectedClient: selectedClient,
             onChanged: onClientChanged,
           ),
@@ -436,35 +785,37 @@ class _ReportsFilterBar extends StatelessWidget {
 }
 
 class _ClientDropdown extends StatelessWidget {
+  final List<ClientModel> clients;
   final String selectedClient;
   final ValueChanged<String?> onChanged;
 
   const _ClientDropdown({
+    required this.clients,
     required this.selectedClient,
     required this.onChanged,
   });
 
   @override
   Widget build(BuildContext context) {
-    const clients = [
+    final names = [
       'All Network Partners',
-      'Serene Wellness Spas',
-      'Azure Retreat Centers',
-      'Mountain Peak Medispa',
-      'Global Skin Experts',
-      'Urban Oasis Spa',
+      ...clients.map((client) => client.name),
     ];
+
+    final value = names.contains(selectedClient)
+        ? selectedClient
+        : 'All Network Partners';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const _FilterLabel('BY CLIENT'),
         DropdownButtonFormField<String>(
-          value: selectedClient,
+          value: value,
           onChanged: onChanged,
           icon: const Icon(Icons.keyboard_arrow_down),
           decoration: _fieldDecoration(),
-          items: clients.map((client) {
+          items: names.map((client) {
             return DropdownMenuItem<String>(
               value: client,
               child: Text(
@@ -499,7 +850,7 @@ class _SearchReportsField extends StatelessWidget {
         TextField(
           onChanged: onChanged,
           decoration: _fieldDecoration().copyWith(
-            hintText: 'Client name or ID...',
+            hintText: 'Client name, ID, or report type...',
             hintStyle: TextStyle(
               color: AppColors.secondary.withValues(alpha: 0.50),
               fontSize: 14,
@@ -664,7 +1015,7 @@ class _ReportsTableHeader extends StatelessWidget {
             flex: 2,
             child: Align(
               alignment: Alignment.centerRight,
-              child: _TableHeaderText('REVENUE VALUE'),
+              child: _TableHeaderText('REVENUE / VALUE'),
             ),
           ),
           Expanded(
@@ -785,7 +1136,12 @@ class _ReportTableRow extends StatelessWidget {
             width: 44,
             child: IconButton(
               tooltip: 'View Report',
-              onPressed: () {},
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (context) => _ReportDetailsDialog(report: report),
+                );
+              },
               icon: const Icon(
                 Icons.visibility,
                 color: AppColors.secondary,
@@ -844,6 +1200,199 @@ class _ReportStatusBadge extends StatelessWidget {
   }
 }
 
+
+class _ReportDetailsDialog extends StatelessWidget {
+  final ReportRowModel report;
+
+  const _ReportDetailsDialog({
+    required this.report,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isProcessed = report.status == ReportStatus.processed;
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.all(32),
+      child: Container(
+        width: 560,
+        padding: const EdgeInsets.all(32),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceContainerLowest,
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: const [
+            BoxShadow(
+              color: Color.fromRGBO(45, 52, 54, 0.18),
+              blurRadius: 32,
+              offset: Offset(0, 16),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.description_outlined,
+                    color: AppColors.primary,
+                    size: 26,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Text(
+                    report.reportType,
+                    style: const TextStyle(
+                      color: AppColors.onSurface,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(
+                    Icons.close,
+                    color: AppColors.secondary,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 26),
+            _ReportDetailRow(
+              label: 'Client Name',
+              value: report.clientName,
+            ),
+            _ReportDetailRow(
+              label: 'Client ID',
+              value: report.clientId,
+            ),
+            _ReportDetailRow(
+              label: 'Generated Date',
+              value: report.generatedDate,
+            ),
+            _ReportDetailRow(
+              label: 'Revenue / Value',
+              value: report.revenueValue,
+              isHighlighted: true,
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                const SizedBox(
+                  width: 150,
+                  child: Text(
+                    'Status',
+                    style: TextStyle(
+                      color: AppColors.secondary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                _ReportStatusBadge(status: report.status),
+              ],
+            ),
+            const SizedBox(height: 28),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: isProcessed
+                    ? AppColors.primary.withValues(alpha: 0.08)
+                    : AppColors.surfaceContainerHigh,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                isProcessed
+                    ? 'This report is generated from your live Firestore database.'
+                    : 'This report is still in draft because there are no matching records yet.',
+                style: TextStyle(
+                  color: isProcessed ? AppColors.primary : AppColors.secondary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  height: 1.4,
+                ),
+              ),
+            ),
+            const SizedBox(height: 28),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text(
+                    'Close',
+                    style: TextStyle(
+                      color: AppColors.secondary,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ReportDetailRow extends StatelessWidget {
+  final String label;
+  final String value;
+  final bool isHighlighted;
+
+  const _ReportDetailRow({
+    required this.label,
+    required this.value,
+    this.isHighlighted = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 150,
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: AppColors.secondary,
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(
+                color: isHighlighted ? AppColors.primary : AppColors.onSurface,
+                fontSize: 15,
+                fontWeight: isHighlighted ? FontWeight.w900 : FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
 class _ReportsPagination extends StatelessWidget {
   final int visibleCount;
   final int totalReports;
@@ -855,13 +1404,15 @@ class _ReportsPagination extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final fromText = visibleCount == 0 ? '0' : '1';
+
     return Container(
       color: AppColors.surfaceContainerLow.withValues(alpha: 0.30),
       padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 22),
       child: Row(
         children: [
           Text(
-            'SHOWING 1 TO $visibleCount OF $totalReports ENTRIES',
+            'SHOWING $fromText TO $visibleCount OF $totalReports ENTRIES',
             style: const TextStyle(
               color: AppColors.secondary,
               fontSize: 11,
@@ -878,16 +1429,6 @@ class _ReportsPagination extends StatelessWidget {
           const _PaginationNumber(
             number: '1',
             active: true,
-          ),
-          SizedBox(width: 8),
-          const _PaginationNumber(
-            number: '2',
-            active: false,
-          ),
-          SizedBox(width: 8),
-          const _PaginationNumber(
-            number: '3',
-            active: false,
           ),
           SizedBox(width: 8),
           const _PaginationButton(

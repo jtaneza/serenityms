@@ -1299,6 +1299,49 @@ class _DialogTextField extends StatelessWidget {
     );
   }
 }
+// Put this function in your Super Admin Client Management page.
+// Call this when the super admin clicks Archive/Delete client.
+
+Future<void> archiveClient({
+  required String clientDocId,
+  required Map<String, dynamic> clientData,
+  required String superAdminUid,
+  required String superAdminName,
+}) async {
+  final firestore = FirebaseFirestore.instance;
+
+  final batch = firestore.batch();
+
+  final clientRef = firestore.collection('clients').doc(clientDocId);
+  final archiveRef = firestore.collection('archives').doc();
+
+  batch.set(archiveRef, {
+    'dataType': 'Archived Client',
+    'collectionName': 'clients',
+    'originalDocId': clientDocId,
+    'data': {
+      ...clientData,
+      'status': clientData['status'] ?? 'active',
+      'isArchived': false,
+    },
+    'originalCreatedAt': clientData['createdAt'] ?? FieldValue.serverTimestamp(),
+    'archivedAt': FieldValue.serverTimestamp(),
+    'archivedBy': superAdminUid,
+    'archivedByName': superAdminName,
+    'restored': false,
+    'status': 'archived',
+  });
+
+  batch.set(clientRef, {
+    'isArchived': true,
+    'status': 'archived',
+    'archivedAt': FieldValue.serverTimestamp(),
+    'archivedBy': superAdminUid,
+    'archivedByName': superAdminName,
+  }, SetOptions(merge: true));
+
+  await batch.commit();
+}
 
 class _DialogLabel extends StatelessWidget {
   final String text;

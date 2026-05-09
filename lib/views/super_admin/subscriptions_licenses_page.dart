@@ -1,8 +1,10 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+
 import '../../core/app_colors.dart';
 import '../../models/user_model.dart';
-import '../../widgets/admin_sidebar.dart';
 import '../../widgets/admin_header.dart';
+import '../../widgets/admin_sidebar.dart';
 
 class SubscriptionsLicensesPage extends StatelessWidget {
   final UserModel user;
@@ -11,44 +13,6 @@ class SubscriptionsLicensesPage extends StatelessWidget {
     super.key,
     required this.user,
   });
-
-  static const List<LicenseModel> licenses = [
-    LicenseModel(
-      clientName: 'Harbor Health Group',
-      clientId: 'HHG-4402',
-      plan: 'Yearly Gold',
-      expiryDate: 'Dec 14, 2024',
-      status: LicenseStatus.active,
-    ),
-    LicenseModel(
-      clientName: 'Summit Wellness Center',
-      clientId: 'SWC-9912',
-      plan: 'Monthly Silver',
-      expiryDate: 'Oct 28, 2023',
-      status: LicenseStatus.expired,
-    ),
-    LicenseModel(
-      clientName: 'NeoDynamics Clinic',
-      clientId: 'NDC-0128',
-      plan: 'Lifetime Platinum',
-      expiryDate: 'Never',
-      status: LicenseStatus.pending,
-    ),
-    LicenseModel(
-      clientName: 'Tranquil Oasis Spa',
-      clientId: 'TOS-5581',
-      plan: 'Yearly Bronze',
-      expiryDate: 'Jan 20, 2025',
-      status: LicenseStatus.active,
-    ),
-    LicenseModel(
-      clientName: 'Blissful Touch Wellness',
-      clientId: 'BTW-3309',
-      plan: 'Monthly Silver',
-      expiryDate: 'Feb 15, 2024',
-      status: LicenseStatus.pending,
-    ),
-  ];
 
   @override
   Widget build(BuildContext context) {
@@ -64,10 +28,10 @@ class SubscriptionsLicensesPage extends StatelessWidget {
             child: Column(
               children: [
                 AdminHeader(user: user),
-                const Expanded(
+                Expanded(
                   child: SingleChildScrollView(
-                    padding: EdgeInsets.fromLTRB(40, 36, 40, 32),
-                    child: _SubscriptionContent(),
+                    padding: const EdgeInsets.fromLTRB(40, 36, 40, 32),
+                    child: _SubscriptionContent(user: user),
                   ),
                 ),
               ],
@@ -79,39 +43,25 @@ class SubscriptionsLicensesPage extends StatelessWidget {
   }
 }
 
-enum LicenseStatus { active, expired, pending }
-
-class LicenseModel {
-  final String clientName;
-  final String clientId;
-  final String plan;
-  final String expiryDate;
-  final LicenseStatus status;
-
-  const LicenseModel({
-    required this.clientName,
-    required this.clientId,
-    required this.plan,
-    required this.expiryDate,
-    required this.status,
-  });
-}
-
 class _SubscriptionContent extends StatelessWidget {
-  const _SubscriptionContent();
+  final UserModel user;
+
+  const _SubscriptionContent({
+    required this.user,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return const Column(
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _HeaderSection(),
-        SizedBox(height: 60),
-        _PlansSection(),
-        SizedBox(height: 60),
-        _LicenseAndPaymentSection(),
-        SizedBox(height: 50),
-        Center(
+        const _HeaderSection(),
+        const SizedBox(height: 60),
+        _PlansSection(user: user),
+        const SizedBox(height: 60),
+        _LicenseAndPaymentSection(user: user),
+        const SizedBox(height: 50),
+        const Center(
           child: Text(
             '© 2023 Serenity Management Systems. Professional License Management Console.',
             style: TextStyle(
@@ -159,10 +109,149 @@ class _HeaderSection extends StatelessWidget {
 }
 
 class _PlansSection extends StatelessWidget {
-  const _PlansSection();
+  final UserModel user;
+
+  const _PlansSection({
+    required this.user,
+  });
+
+  CollectionReference<Map<String, dynamic>> get plansRef =>
+      FirebaseFirestore.instance.collection('subscription_plans');
+
+  Future<void> seedDefaultPlans() async {
+    final snap = await plansRef.limit(1).get();
+
+    if (snap.docs.isNotEmpty) return;
+
+    await plansRef.add({
+      'tier': 'GOLD TIER',
+      'name': 'Yearly',
+      'price': 1800,
+      'suffix': '/yr',
+      'buttonText': 'Manage Plan',
+      'popular': true,
+      'isActive': true,
+      'createdAt': FieldValue.serverTimestamp(),
+      'createdBy': user.uid,
+    });
+
+    await plansRef.add({
+      'tier': 'PLATINUM TIER',
+      'name': 'Lifetime',
+      'price': 9500,
+      'suffix': '',
+      'buttonText': 'Edit Details',
+      'popular': false,
+      'isActive': true,
+      'createdAt': FieldValue.serverTimestamp(),
+      'createdBy': user.uid,
+    });
+  }
+
+  void openPlanDialog(
+      BuildContext context, {
+        String? docId,
+        Map<String, dynamic>? data,
+      }) {
+    final tierController = TextEditingController(
+      text: data?['tier']?.toString() ?? '',
+    );
+    final nameController = TextEditingController(
+      text: data?['name']?.toString() ?? '',
+    );
+    final priceController = TextEditingController(
+      text: data?['price']?.toString() ?? '',
+    );
+    final suffixController = TextEditingController(
+      text: data?['suffix']?.toString() ?? '',
+    );
+
+    bool popular = data?['popular'] == true;
+    bool isActive = data?['isActive'] != false;
+
+    showDialog(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: Text(docId == null ? 'Add Subscription Plan' : 'Edit Plan'),
+            content: SizedBox(
+              width: 430,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _DialogField(controller: tierController, label: 'Tier'),
+                  _DialogField(controller: nameController, label: 'Plan Name'),
+                  _DialogField(controller: priceController, label: 'Price'),
+                  _DialogField(
+                    controller: suffixController,
+                    label: 'Suffix',
+                    hint: '/yr or empty',
+                  ),
+                  SwitchListTile(
+                    value: popular,
+                    onChanged: (value) {
+                      setDialogState(() => popular = value);
+                    },
+                    title: const Text('Popular Plan'),
+                  ),
+                  SwitchListTile(
+                    value: isActive,
+                    onChanged: (value) {
+                      setDialogState(() => isActive = value);
+                    },
+                    title: const Text('Active'),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  final price =
+                      double.tryParse(priceController.text.trim()) ?? 0;
+
+                  final payload = {
+                    'tier': tierController.text.trim(),
+                    'name': nameController.text.trim(),
+                    'price': price,
+                    'suffix': suffixController.text.trim(),
+                    'buttonText': docId == null ? 'Manage Plan' : 'Edit Details',
+                    'popular': popular,
+                    'isActive': isActive,
+                    'updatedAt': FieldValue.serverTimestamp(),
+                    'updatedBy': user.uid,
+                  };
+
+                  if (docId == null) {
+                    await plansRef.add({
+                      ...payload,
+                      'createdAt': FieldValue.serverTimestamp(),
+                      'createdBy': user.uid,
+                    });
+                  } else {
+                    await plansRef.doc(docId).update(payload);
+                  }
+
+                  if (context.mounted) Navigator.pop(context);
+                },
+                child: const Text('Save'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    seedDefaultPlans();
+
     return Column(
       children: [
         Row(
@@ -181,38 +270,56 @@ class _PlansSection extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 28),
-        const Row(
-          children: [
-            Expanded(
-              child: _PlanCard(
-                tier: 'GOLD TIER',
-                name: 'Yearly',
-                price: '1,800',
-                suffix: '/yr',
-                buttonText: 'Manage Plan',
-                popular: true,
-              ),
-            ),
-            SizedBox(width: 28),
-            Expanded(
-              child: _PlanCard(
-                tier: 'PLATINUM TIER',
-                name: 'Lifetime',
-                price: '9,500',
-                suffix: '',
-                buttonText: 'Edit Details',
-                popular: false,
-              ),
-            ),
-            SizedBox(width: 28),
-            Expanded(child: _CustomTierCard()),
-          ],
+        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: plansRef.where('isActive', isEqualTo: true).snapshots(),
+          builder: (context, snapshot) {
+            final docs = snapshot.data?.docs ?? [];
+
+            return Row(
+              children: [
+                ...docs.take(2).map((doc) {
+                  final data = doc.data();
+
+                  return Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 28),
+                      child: _PlanCard(
+                        tier: data['tier']?.toString() ?? 'PLAN',
+                        name: data['name']?.toString() ?? 'Plan',
+                        price: _money(data['price']),
+                        suffix: data['suffix']?.toString() ?? '',
+                        buttonText: data['buttonText']?.toString() ?? 'Edit',
+                        popular: data['popular'] == true,
+                        onTap: () => openPlanDialog(
+                          context,
+                          docId: doc.id,
+                          data: data,
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+                Expanded(
+                  child: _CustomTierCard(
+                    onTap: () => openPlanDialog(context),
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ],
     );
   }
-}
 
+  String _money(dynamic value) {
+    final amount = value is num ? value.toDouble() : double.tryParse('$value') ?? 0;
+    return amount.toStringAsFixed(0).replaceAllMapped(
+      RegExp(r'\B(?=(\d{3})+(?!\d))'),
+          (_) => ',',
+    );
+  }
+}
 
 class _PlanCard extends StatelessWidget {
   final String tier;
@@ -221,6 +328,7 @@ class _PlanCard extends StatelessWidget {
   final String suffix;
   final String buttonText;
   final bool popular;
+  final VoidCallback onTap;
 
   const _PlanCard({
     required this.tier,
@@ -229,6 +337,7 @@ class _PlanCard extends StatelessWidget {
     required this.suffix,
     required this.buttonText,
     required this.popular,
+    required this.onTap,
   });
 
   @override
@@ -260,7 +369,8 @@ class _PlanCard extends StatelessWidget {
               right: 0,
               top: 0,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
                   color: AppColors.primary,
                   borderRadius: BorderRadius.circular(999),
@@ -303,7 +413,7 @@ class _PlanCard extends StatelessWidget {
                   const Padding(
                     padding: EdgeInsets.only(bottom: 9),
                     child: Text(
-                      '\$',
+                      '₱',
                       style: TextStyle(
                         color: AppColors.primary,
                         fontSize: 22,
@@ -334,24 +444,27 @@ class _PlanCard extends StatelessWidget {
                 ],
               ),
               const Spacer(),
-              Container(
-                height: 46,
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: popular ? AppColors.primary : Colors.transparent,
-                  borderRadius: BorderRadius.circular(8),
-                  border: popular
-                      ? null
-                      : Border.all(
-                    color: AppColors.primary.withValues(alpha: 0.25),
+              InkWell(
+                onTap: onTap,
+                child: Container(
+                  height: 46,
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: popular ? AppColors.primary : Colors.transparent,
+                    borderRadius: BorderRadius.circular(8),
+                    border: popular
+                        ? null
+                        : Border.all(
+                      color: AppColors.primary.withValues(alpha: 0.25),
+                    ),
                   ),
-                ),
-                child: Center(
-                  child: Text(
-                    buttonText,
-                    style: TextStyle(
-                      color: popular ? Colors.white : AppColors.primary,
-                      fontWeight: FontWeight.w900,
+                  child: Center(
+                    child: Text(
+                      buttonText,
+                      style: TextStyle(
+                        color: popular ? Colors.white : AppColors.primary,
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
                   ),
                 ),
@@ -365,43 +478,50 @@ class _PlanCard extends StatelessWidget {
 }
 
 class _CustomTierCard extends StatelessWidget {
-  const _CustomTierCard();
+  final VoidCallback onTap;
+
+  const _CustomTierCard({
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 260,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: AppColors.outlineVariant.withValues(alpha: 0.50),
-          width: 2,
-          style: BorderStyle.solid,
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        height: 260,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: AppColors.outlineVariant.withValues(alpha: 0.50),
+            width: 2,
+          ),
         ),
-      ),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
-                color: AppColors.surfaceContainer,
-                borderRadius: BorderRadius.circular(12),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.add, color: AppColors.secondary),
               ),
-              child: const Icon(Icons.add, color: AppColors.secondary),
-            ),
-            const SizedBox(height: 18),
-            const Text(
-              'Define Custom Tier',
-              style: TextStyle(
-                color: AppColors.secondary,
-                fontWeight: FontWeight.w800,
-                fontSize: 15,
+              const SizedBox(height: 18),
+              const Text(
+                'Define Custom Tier',
+                style: TextStyle(
+                  color: AppColors.secondary,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -409,73 +529,347 @@ class _CustomTierCard extends StatelessWidget {
 }
 
 class _LicenseAndPaymentSection extends StatelessWidget {
-  const _LicenseAndPaymentSection();
+  final UserModel user;
+
+  const _LicenseAndPaymentSection({
+    required this.user,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return const Row(
+    return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(flex: 2, child: _LicenseTableSection()),
-        SizedBox(width: 44),
-        Expanded(child: _RightPanel()),
+        Expanded(flex: 2, child: _LicenseTableSection(user: user)),
+        const SizedBox(width: 44),
+        Expanded(child: _RightPanel(user: user)),
       ],
     );
   }
 }
 
 class _LicenseTableSection extends StatelessWidget {
-  const _LicenseTableSection();
+  final UserModel user;
+
+  const _LicenseTableSection({
+    required this.user,
+  });
+
+  CollectionReference<Map<String, dynamic>> get clientsRef =>
+      FirebaseFirestore.instance.collection('clients');
+
+  void openLicenseDialog(
+      BuildContext context,
+      String clientId,
+      Map<String, dynamic> data,
+      ) {
+    final planController = TextEditingController(
+      text: data['subscriptionPlan']?.toString() ?? '',
+    );
+    final expiryController = TextEditingController(
+      text: data['subscriptionExpiry']?.toString() ?? '',
+    );
+
+    String status = data['subscriptionStatus']?.toString() ?? 'Active';
+
+    showDialog(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text('Edit Client License'),
+            content: SizedBox(
+              width: 420,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _DialogField(controller: planController, label: 'Plan'),
+                  _DialogField(
+                    controller: expiryController,
+                    label: 'Expiry Date',
+                    hint: 'Dec 14, 2024 / Never',
+                  ),
+                  DropdownButtonFormField<String>(
+                    value: status,
+                    decoration: const InputDecoration(labelText: 'Status'),
+                    items: const [
+                      DropdownMenuItem(value: 'Active', child: Text('Active')),
+                      DropdownMenuItem(value: 'Expired', child: Text('Expired')),
+                      DropdownMenuItem(value: 'Pending', child: Text('Pending')),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) setDialogState(() => status = value);
+                    },
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  await clientsRef.doc(clientId).set({
+                    'subscriptionPlan': planController.text.trim(),
+                    'subscriptionExpiry': expiryController.text.trim(),
+                    'subscriptionStatus': status,
+                    'updatedAt': FieldValue.serverTimestamp(),
+                    'updatedBy': user.uid,
+                  }, SetOptions(merge: true));
+
+                  if (context.mounted) Navigator.pop(context);
+                },
+                child: const Text('Save'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> archiveClient(
+      BuildContext context,
+      String clientId,
+      Map<String, dynamic> data,
+      ) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Archive Client License'),
+        content: Text(
+          'Archive ${data['businessName'] ?? data['clientName'] ?? 'this client'}? '
+              'This will move the client license record to Backup & Restore archives.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Archive'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    final batch = FirebaseFirestore.instance.batch();
+
+    final clientRef = clientsRef.doc(clientId);
+    final archiveRef = FirebaseFirestore.instance.collection('archives').doc();
+
+    batch.set(archiveRef, {
+      'dataType': 'Archived Client License',
+      'collectionName': 'clients',
+      'originalDocId': clientId,
+      'data': {
+        ...data,
+        'isArchived': false,
+        'status': data['status'] ?? 'active',
+      },
+      'originalCreatedAt': data['createdAt'] ?? FieldValue.serverTimestamp(),
+      'archivedAt': FieldValue.serverTimestamp(),
+      'createdAt': FieldValue.serverTimestamp(),
+      'archivedBy': user.uid,
+      'archivedByName': user.fullName,
+      'status': 'archived',
+      'restored': false,
+    });
+
+    batch.set(clientRef, {
+      'isArchived': true,
+      'subscriptionStatus': 'Archived',
+      'status': 'archived',
+      'isActive': false,
+      'archivedAt': FieldValue.serverTimestamp(),
+      'archivedBy': user.uid,
+      'archivedByName': user.fullName,
+      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedBy': user.uid,
+    }, SetOptions(merge: true));
+
+    await batch.commit();
+
+    if (!context.mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Client license archived. It will appear in Backup & Restore.'),
+        backgroundColor: AppColors.primary,
+      ),
+    );
+  }
+
+  Future<void> renewClientLicense(
+      BuildContext context,
+      String clientId,
+      Map<String, dynamic> data,
+      ) async {
+    final planController = TextEditingController(
+      text: data['subscriptionPlan']?.toString() ?? 'Yearly',
+    );
+    final expiryController = TextEditingController(
+      text: data['subscriptionExpiry']?.toString() ?? 'January 01 2027',
+    );
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Renew Client License'),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _DialogField(controller: planController, label: 'Plan'),
+              _DialogField(
+                controller: expiryController,
+                label: 'New Expiry Date',
+                hint: 'January 01 2027 / Never',
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Renew'),
+          ),
+        ],
+      ),
+    );
+
+    if (saved != true) return;
+
+    await clientsRef.doc(clientId).set({
+      'subscriptionPlan': planController.text.trim(),
+      'subscriptionExpiry': expiryController.text.trim(),
+      'subscriptionStatus': 'Active',
+      'status': 'active',
+      'isActive': true,
+      'isArchived': false,
+      'renewedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedBy': user.uid,
+    }, SetOptions(merge: true));
+
+    if (!context.mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Client license renewed and activated.'),
+        backgroundColor: AppColors.primary,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        const Row(
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: clientsRef.snapshots(),
+      builder: (context, snapshot) {
+        final clients = (snapshot.data?.docs ?? []).where((doc) {
+          final data = doc.data();
+          final status = (data['subscriptionStatus'] ?? data['status'] ?? '')
+              .toString()
+              .toLowerCase();
+
+          return data['isArchived'] != true && status != 'archived';
+        }).toList();
+
+        return Column(
           children: [
-            Icon(Icons.verified, color: AppColors.primary),
-            SizedBox(width: 12),
-            Text(
-              'Active Client Licenses',
-              style: TextStyle(
-                color: AppColors.onSurface,
-                fontSize: 21,
-                fontWeight: FontWeight.w900,
+            Row(
+              children: [
+                const Icon(Icons.verified, color: AppColors.primary),
+                const SizedBox(width: 12),
+                const Text(
+                  'Active Client Licenses',
+                  style: TextStyle(
+                    color: AppColors.onSurface,
+                    fontSize: 21,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const Spacer(),
+                _TotalChip(total: clients.length),
+              ],
+            ),
+            const SizedBox(height: 26),
+            Container(
+              decoration: BoxDecoration(
+                color: AppColors.surfaceContainerLowest,
+                borderRadius: BorderRadius.circular(18),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color.fromRGBO(45, 52, 54, 0.05),
+                    blurRadius: 32,
+                    offset: Offset(0, 12),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  const _LicenseTableHeader(),
+                  if (clients.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.all(28),
+                      child: Text(
+                        'No clients found.',
+                        style: TextStyle(color: AppColors.secondary),
+                      ),
+                    )
+                  else
+                    ...clients.map((doc) {
+                      return _LicenseRow(
+                        docId: doc.id,
+                        data: doc.data(),
+                        onEdit: () => openLicenseDialog(
+                          context,
+                          doc.id,
+                          doc.data(),
+                        ),
+                        onRenew: () => renewClientLicense(
+                          context,
+                          doc.id,
+                          doc.data(),
+                        ),
+                        onArchive: () => archiveClient(
+                          context,
+                          doc.id,
+                          doc.data(),
+                        ),
+                      );
+                    }),
+                ],
               ),
             ),
-            Spacer(),
-            _TotalChip(),
           ],
-        ),
-        const SizedBox(height: 26),
-        Container(
-          decoration: BoxDecoration(
-            color: AppColors.surfaceContainerLowest,
-            borderRadius: BorderRadius.circular(18),
-            boxShadow: const [
-              BoxShadow(
-                color: Color.fromRGBO(45, 52, 54, 0.05),
-                blurRadius: 32,
-                offset: Offset(0, 12),
-              ),
-            ],
-          ),
-          child: Column(
-            children: [
-              const _LicenseTableHeader(),
-              ...SubscriptionsLicensesPage.licenses.map(
-                    (license) => _LicenseRow(license: license),
-              ),
-            ],
-          ),
-        ),
-      ],
+        );
+      },
     );
   }
 }
 
 class _TotalChip extends StatelessWidget {
-  const _TotalChip();
+  final int total;
+
+  const _TotalChip({
+    required this.total,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -485,9 +879,9 @@ class _TotalChip extends StatelessWidget {
         color: AppColors.surfaceContainer,
         borderRadius: BorderRadius.circular(999),
       ),
-      child: const Text(
-        '5 TOTAL',
-        style: TextStyle(
+      child: Text(
+        '$total TOTAL',
+        style: const TextStyle(
           color: AppColors.secondary,
           fontSize: 11,
           fontWeight: FontWeight.w900,
@@ -525,14 +919,38 @@ class _LicenseTableHeader extends StatelessWidget {
 }
 
 class _LicenseRow extends StatelessWidget {
-  final LicenseModel license;
+  final String docId;
+  final Map<String, dynamic> data;
+  final VoidCallback onEdit;
+  final VoidCallback onRenew;
+  final VoidCallback onArchive;
 
   const _LicenseRow({
-    required this.license,
+    required this.docId,
+    required this.data,
+    required this.onEdit,
+    required this.onRenew,
+    required this.onArchive,
   });
 
   @override
   Widget build(BuildContext context) {
+    final clientName =
+        data['businessName']?.toString() ?? data['clientName']?.toString() ?? 'Client';
+    final clientCode = data['clientCode']?.toString() ?? docId;
+    final plan = data['subscriptionPlan']?.toString() ?? 'No Plan';
+    final expiry = data['subscriptionExpiry']?.toString() ?? 'Not set';
+    String status = data['subscriptionStatus']?.toString() ??
+        ((data['isActive'] == false) ? 'Expired' : 'Active');
+
+    final expiryLower = expiry.toLowerCase();
+    if (expiryLower != 'never' && expiryLower != 'not set') {
+      final parsedExpiry = DateTime.tryParse(expiry);
+      if (parsedExpiry != null && parsedExpiry.isBefore(DateTime.now())) {
+        status = 'Expired';
+      }
+    }
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
       decoration: const BoxDecoration(
@@ -548,7 +966,7 @@ class _LicenseRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  license.clientName,
+                  clientName,
                   style: const TextStyle(
                     color: AppColors.onSurface,
                     fontSize: 15,
@@ -557,7 +975,7 @@ class _LicenseRow extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'ID: ${license.clientId}',
+                  'ID: $clientCode',
                   style: const TextStyle(
                     color: AppColors.secondary,
                     fontSize: 11,
@@ -569,7 +987,7 @@ class _LicenseRow extends StatelessWidget {
           Expanded(
             flex: 2,
             child: Text(
-              license.plan,
+              plan,
               style: const TextStyle(
                 color: AppColors.secondary,
                 fontSize: 13,
@@ -580,7 +998,7 @@ class _LicenseRow extends StatelessWidget {
           Expanded(
             flex: 2,
             child: Text(
-              license.expiryDate,
+              expiry,
               style: const TextStyle(
                 color: AppColors.secondary,
                 fontSize: 13,
@@ -589,13 +1007,44 @@ class _LicenseRow extends StatelessWidget {
           ),
           Expanded(
             flex: 2,
-            child: _LicenseStatusBadge(status: license.status),
+            child: _LicenseStatusBadge(status: status),
           ),
-          const Expanded(
+          Expanded(
             flex: 2,
             child: Align(
               alignment: Alignment.centerRight,
-              child: _LicenseActions(),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    tooltip: 'Edit license',
+                    onPressed: onEdit,
+                    icon: const Icon(
+                      Icons.edit,
+                      color: AppColors.secondary,
+                      size: 20,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Renew / activate license',
+                    onPressed: onRenew,
+                    icon: const Icon(
+                      Icons.verified,
+                      color: AppColors.primary,
+                      size: 20,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Archive license',
+                    onPressed: onArchive,
+                    icon: const Icon(
+                      Icons.archive,
+                      color: AppColors.secondary,
+                      size: 20,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -624,7 +1073,7 @@ class _HeaderText extends StatelessWidget {
 }
 
 class _LicenseStatusBadge extends StatelessWidget {
-  final LicenseStatus status;
+  final String status;
 
   const _LicenseStatusBadge({
     required this.status,
@@ -632,26 +1081,28 @@ class _LicenseStatusBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final value = status.toLowerCase();
+
     late final String label;
     late final Color textColor;
     late final Color bgColor;
 
-    switch (status) {
-      case LicenseStatus.active:
-        label = 'ACTIVE';
-        textColor = AppColors.primary;
-        bgColor = AppColors.primary.withValues(alpha: 0.12);
-        break;
-      case LicenseStatus.expired:
-        label = 'EXPIRED';
-        textColor = AppColors.error;
-        bgColor = AppColors.errorContainer;
-        break;
-      case LicenseStatus.pending:
-        label = 'PENDING';
-        textColor = AppColors.secondary;
-        bgColor = AppColors.surfaceContainerHigh;
-        break;
+    if (value == 'active') {
+      label = 'ACTIVE';
+      textColor = AppColors.primary;
+      bgColor = AppColors.primary.withValues(alpha: 0.12);
+    } else if (value == 'expired') {
+      label = 'EXPIRED';
+      textColor = AppColors.error;
+      bgColor = AppColors.errorContainer;
+    } else if (value == 'archived') {
+      label = 'ARCHIVED';
+      textColor = AppColors.secondary;
+      bgColor = AppColors.surfaceContainerHigh;
+    } else {
+      label = 'PENDING';
+      textColor = AppColors.secondary;
+      bgColor = AppColors.surfaceContainerHigh;
     }
 
     return Align(
@@ -675,54 +1126,89 @@ class _LicenseStatusBadge extends StatelessWidget {
   }
 }
 
-class _LicenseActions extends StatelessWidget {
-  const _LicenseActions();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        IconButton(
-          onPressed: () {},
-          icon: const Icon(Icons.edit, color: AppColors.secondary, size: 20),
-        ),
-        IconButton(
-          onPressed: () {},
-          icon: const Icon(Icons.archive, color: AppColors.secondary, size: 20),
-        ),
-      ],
-    );
-  }
-}
-
 class _RightPanel extends StatelessWidget {
-  const _RightPanel();
+  final UserModel user;
+
+  const _RightPanel({
+    required this.user,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return const Column(
+    return Column(
       children: [
-        _RecentPaymentsSection(),
-        SizedBox(height: 28),
-        _RevenueGrowthCard(),
+        _RecentPaymentsSection(user: user),
+        const SizedBox(height: 28),
+        const _RevenueGrowthCard(),
       ],
     );
   }
 }
 
 class _RecentPaymentsSection extends StatelessWidget {
-  const _RecentPaymentsSection();
+  final UserModel user;
+
+  const _RecentPaymentsSection({
+    required this.user,
+  });
+
+  CollectionReference<Map<String, dynamic>> get paymentsRef =>
+      FirebaseFirestore.instance.collection('subscription_payments');
+
+  void openPaymentDialog(BuildContext context) {
+    final amountController = TextEditingController();
+    final methodController = TextEditingController();
+    final clientController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Record Subscription Payment'),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _DialogField(controller: amountController, label: 'Amount'),
+              _DialogField(controller: methodController, label: 'Method'),
+              _DialogField(controller: clientController, label: 'Client Name'),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              await paymentsRef.add({
+                'amount': double.tryParse(amountController.text.trim()) ?? 0,
+                'method': methodController.text.trim(),
+                'clientName': clientController.text.trim(),
+                'status': 'Paid',
+                'createdAt': FieldValue.serverTimestamp(),
+                'createdBy': user.uid,
+              });
+
+              if (context.mounted) Navigator.pop(context);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    return const Column(
+    return Column(
       children: [
         Row(
           children: [
-            Icon(Icons.history, color: AppColors.primary),
-            SizedBox(width: 12),
-            Text(
+            const Icon(Icons.history, color: AppColors.primary),
+            const SizedBox(width: 12),
+            const Text(
               'Recent Payments',
               style: TextStyle(
                 color: AppColors.onSurface,
@@ -730,17 +1216,44 @@ class _RecentPaymentsSection extends StatelessWidget {
                 fontWeight: FontWeight.w900,
               ),
             ),
+            const Spacer(),
+            IconButton(
+              onPressed: () => openPaymentDialog(context),
+              icon: const Icon(Icons.add, color: AppColors.primary),
+            ),
           ],
         ),
-        SizedBox(height: 26),
-        _PaymentsCard(),
+        const SizedBox(height: 26),
+        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: paymentsRef.snapshots(),
+          builder: (context, snapshot) {
+            final docs = snapshot.data?.docs ?? [];
+
+            docs.sort((a, b) {
+              final aTime = a.data()['createdAt'];
+              final bTime = b.data()['createdAt'];
+
+              if (aTime is Timestamp && bTime is Timestamp) {
+                return bTime.compareTo(aTime);
+              }
+
+              return 0;
+            });
+
+            return _PaymentsCard(docs: docs.take(5).toList());
+          },
+        ),
       ],
     );
   }
 }
 
 class _PaymentsCard extends StatelessWidget {
-  const _PaymentsCard();
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
+
+  const _PaymentsCard({
+    required this.docs,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -757,27 +1270,27 @@ class _PaymentsCard extends StatelessWidget {
           ),
         ],
       ),
-      child: const Column(
+      child: docs.isEmpty
+          ? const Text(
+        'No subscription payments yet.',
+        style: TextStyle(color: AppColors.secondary),
+      )
+          : Column(
         children: [
-          _PaymentItem(
-            icon: Icons.credit_card,
-            amount: '\$1,800.00',
-            method: 'Visa • Oct 12, 2023',
-          ),
-          SizedBox(height: 24),
-          _PaymentItem(
-            icon: Icons.account_balance,
-            amount: '\$199.00',
-            method: 'Bank Transfer • Oct 09, 2023',
-          ),
-          SizedBox(height: 24),
-          _PaymentItem(
-            icon: Icons.payments,
-            amount: '\$9,500.00',
-            method: 'Wire • Oct 01, 2023',
-          ),
-          SizedBox(height: 24),
-          Text(
+          ...docs.map((doc) {
+            final data = doc.data();
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 22),
+              child: _PaymentItem(
+                icon: Icons.payments,
+                amount: '₱${_money(data['amount'])}',
+                method:
+                '${data['method'] ?? 'Payment'} • ${_date(data['createdAt'])}',
+              ),
+            );
+          }),
+          const SizedBox(height: 4),
+          const Text(
             'View History',
             style: TextStyle(
               color: AppColors.primary,
@@ -787,6 +1300,20 @@ class _PaymentsCard extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  static String _money(dynamic value) {
+    final amount = value is num ? value.toDouble() : double.tryParse('$value') ?? 0;
+    return amount.toStringAsFixed(2);
+  }
+
+  static String _date(dynamic value) {
+    if (value is Timestamp) {
+      final date = value.toDate();
+      return '${date.month}/${date.day}/${date.year}';
+    }
+
+    return 'No date';
   }
 }
 
@@ -906,6 +1433,37 @@ class _RevenueGrowthCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _DialogField extends StatelessWidget {
+  final TextEditingController controller;
+  final String label;
+  final String? hint;
+
+  const _DialogField({
+    required this.controller,
+    required this.label,
+    this.hint,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: TextField(
+        controller: controller,
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: hint,
+          filled: true,
+          fillColor: AppColors.surfaceContainerLow,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
       ),
     );
   }

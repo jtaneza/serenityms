@@ -100,7 +100,6 @@ class _ClientServicesPageState extends State<ClientServicesPage> {
         child: StreamBuilder<QuerySnapshot>(
           stream: FirebaseFirestore.instance
               .collection('services')
-              .where('createdBy', isEqualTo: currentUser?.uid)
               .where('isArchived', isEqualTo: false)
               .snapshots(),
           builder: (context, snapshot) {

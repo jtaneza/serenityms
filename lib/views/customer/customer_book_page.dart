@@ -33,6 +33,8 @@ class _CustomerBookPageState extends State<CustomerBookPage> {
   String paymentMethod = 'GCash';
   bool isSaving = false;
 
+  double depositPercent = 20;
+
   final gcashReferenceController = TextEditingController();
 
   @override
@@ -40,12 +42,39 @@ class _CustomerBookPageState extends State<CustomerBookPage> {
     super.initState();
     selectedServiceId = widget.initialServiceId;
     selectedService = widget.initialService;
+    loadBookingRules();
   }
 
   @override
   void dispose() {
     gcashReferenceController.dispose();
     super.dispose();
+  }
+
+
+  Future<void> loadBookingRules() async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('booking_rules')
+          .limit(1)
+          .get();
+
+      if (snap.docs.isNotEmpty) {
+        final data = snap.docs.first.data();
+
+        if (!mounted) return;
+
+        setState(() {
+          depositPercent = ((data['depositPercent'] ?? 20) as num).toDouble();
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        depositPercent = 20;
+      });
+    }
   }
 
   final times = const [
@@ -155,7 +184,7 @@ class _CustomerBookPageState extends State<CustomerBookPage> {
 
       final customerData = customerDoc.data() ?? {};
       final price = getPrice(selectedService!);
-      final downpayment = (price * 0.20).round();
+      final downpayment = (price * (depositPercent / 100)).round();
 
       await FirebaseFirestore.instance.collection('appointments').add({
         'customerId': user.uid,
@@ -182,7 +211,7 @@ class _CustomerBookPageState extends State<CustomerBookPage> {
         'paymentStatus': 'Pending Booking Payment',
         'gcashReferenceNumber': gcashReferenceController.text.trim(),
         'paymentType': 'Booking Downpayment',
-        'downpaymentRate': 20,
+        'downpaymentRate': depositPercent.round(),
         'cancellationPenaltyNote':
         'If cancellation is made after 24 hours, 10% may be deducted from the downpayment.',
         'status': 'Pending',
@@ -599,7 +628,7 @@ class _CustomerBookPageState extends State<CustomerBookPage> {
 
   Widget buildPaymentStep() {
     final price = selectedService == null ? 0 : getPrice(selectedService!);
-    final downpayment = (price * 0.20).round();
+    final downpayment = (price * (depositPercent / 100)).round();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -618,7 +647,7 @@ class _CustomerBookPageState extends State<CustomerBookPage> {
               _PaymentAmountRow(label: 'Service Amount', value: '₱$price'),
               const SizedBox(height: 10),
               _PaymentAmountRow(
-                label: 'Downpayment (20%)',
+                label: 'Downpayment (${depositPercent.round()}%)',
                 value: '₱$downpayment',
               ),
               const Divider(height: 28),
@@ -691,7 +720,7 @@ class _CustomerBookPageState extends State<CustomerBookPage> {
               SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'Reminder: If you cancel your appointment after 24 hours, 10% may be deducted from your downpayment. Final penalty rules will be handled by the spa admin.',
+                  'Reminder: If you cancel your appointment after 24 hours, 20% may be deducted from your downpayment. Final penalty rules will be handled by the spa admin.',
                   style: TextStyle(
                     color: Color(0xFF6D4C00),
                     fontWeight: FontWeight.w700,
@@ -1359,7 +1388,7 @@ class _BookingCard extends StatelessWidget {
           Text('Date: $dateText'),
           Text('Time: ${data['appointmentTime'] ?? ''}'),
           Text('GCash Ref: ${data['gcashReferenceNumber'] ?? 'No reference'}'),
-          Text('Downpayment: ₱${data['downpayment'] ?? 0}'),
+          Text('Downpayment: ₱${data['downpayment'] ?? 0} (${data['downpaymentRate'] ?? 20}%)'),
           if (canCancel) ...[
             const SizedBox(height: 14),
             SizedBox(

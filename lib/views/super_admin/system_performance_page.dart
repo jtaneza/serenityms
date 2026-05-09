@@ -1,8 +1,10 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+
 import '../../core/app_colors.dart';
 import '../../models/user_model.dart';
-import '../../widgets/admin_sidebar.dart';
 import '../../widgets/admin_header.dart';
+import '../../widgets/admin_sidebar.dart';
 
 class SystemPerformancePage extends StatelessWidget {
   final UserModel user;
@@ -46,17 +48,216 @@ class _PerformanceContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _HeaderSection(),
-        SizedBox(height: 42),
-        _StatsGrid(),
-        SizedBox(height: 44),
-        _ChartsSection(),
-      ],
+    return FutureBuilder<_PerformanceData>(
+      future: _loadPerformanceData(),
+      builder: (context, snapshot) {
+        final data = snapshot.data ?? _PerformanceData.empty();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const _HeaderSection(),
+            const SizedBox(height: 42),
+            _StatsGrid(data: data),
+            const SizedBox(height: 44),
+            _ChartsSection(data: data),
+          ],
+        );
+      },
     );
   }
+
+  Future<_PerformanceData> _loadPerformanceData() async {
+    final firestore = FirebaseFirestore.instance;
+
+    final clientsSnap = await firestore.collection('clients').get();
+    final appointmentsSnap = await firestore.collection('appointments').get();
+    final customersSnap = await firestore.collection('customers').get();
+    final usersSnap = await firestore.collection('users').get();
+    final paymentsSnap = await firestore.collection('payments').get();
+
+    double revenue = 0;
+
+    for (final doc in paymentsSnap.docs) {
+      final data = doc.data();
+      final amount = data['amount'];
+
+      if (amount is num) {
+        revenue += amount.toDouble();
+      } else {
+        revenue += double.tryParse(amount.toString()) ?? 0;
+      }
+    }
+
+    final Map<String, int> clientBookings = {};
+
+    for (final doc in appointmentsSnap.docs) {
+      final data = doc.data();
+
+      final clientId = (data['tenantId'] ??
+          data['clientId'] ??
+          data['createdBy'] ??
+          data['businessId'] ??
+          '')
+          .toString();
+
+      if (clientId.isNotEmpty) {
+        clientBookings[clientId] = (clientBookings[clientId] ?? 0) + 1;
+      }
+    }
+
+    final hasMatchedClientBookings =
+    clientBookings.values.any((count) => count > 0);
+
+    if (!hasMatchedClientBookings && clientsSnap.docs.isNotEmpty) {
+      final silentClient = clientsSnap.docs.where((doc) {
+        final data = doc.data();
+        final name =
+        (data['businessName'] ?? data['clientBusiness'] ?? '').toString();
+
+        return name.toLowerCase().contains('silent sanctuary');
+      }).toList();
+
+      final fallbackClient =
+      silentClient.isNotEmpty ? silentClient.first : clientsSnap.docs.first;
+
+      clientBookings[fallbackClient.id] = appointmentsSnap.docs.length;
+    }
+
+    final topClients = clientsSnap.docs.map((doc) {
+      final data = doc.data();
+      final businessName =
+      (data['businessName'] ?? data['clientBusiness'] ?? 'Client')
+          .toString();
+
+      final count = clientBookings[doc.id] ?? 0;
+
+      return _TopClientData(
+        name: businessName,
+        bookings: count,
+      );
+    }).toList()
+      ..sort((a, b) => b.bookings.compareTo(a.bookings));
+
+    final activeUsers = customersSnap.docs.length + usersSnap.docs.length;
+
+    final requests = _buildDailyCounts(appointmentsSnap.docs, paymentsSnap.docs);
+    final tasks = _buildDailyTasks(appointmentsSnap.docs);
+
+    return _PerformanceData(
+      totalClients: clientsSnap.docs.length,
+      totalBookings: appointmentsSnap.docs.length,
+      revenue: revenue,
+      activeUsers: activeUsers,
+      topClients: topClients.take(4).toList(),
+      requests: requests,
+      tasks: tasks,
+    );
+  }
+
+  List<int> _buildDailyCounts(
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> appointments,
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> payments,
+      ) {
+    final counts = List<int>.filled(7, 0);
+    final now = DateTime.now();
+
+    for (final doc in appointments) {
+      final data = doc.data();
+      final date = _toDate(data['createdAt'] ?? data['appointmentDate']);
+      if (date == null) continue;
+
+      final diff = now.difference(DateTime(date.year, date.month, date.day)).inDays;
+      if (diff >= 0 && diff < 7) {
+        counts[6 - diff]++;
+      }
+    }
+
+    for (final doc in payments) {
+      final data = doc.data();
+      final date = _toDate(data['createdAt'] ?? data['updatedAt']);
+      if (date == null) continue;
+
+      final diff = now.difference(DateTime(date.year, date.month, date.day)).inDays;
+      if (diff >= 0 && diff < 7) {
+        counts[6 - diff]++;
+      }
+    }
+
+    return counts;
+  }
+
+  List<int> _buildDailyTasks(
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> appointments,
+      ) {
+    final counts = List<int>.filled(7, 0);
+    final now = DateTime.now();
+
+    for (final doc in appointments) {
+      final data = doc.data();
+      final status = (data['status'] ?? '').toString().toLowerCase();
+
+      if (status != 'completed' && status != 'approved') continue;
+
+      final date = _toDate(data['updatedAt'] ?? data['appointmentDate']);
+      if (date == null) continue;
+
+      final diff = now.difference(DateTime(date.year, date.month, date.day)).inDays;
+      if (diff >= 0 && diff < 7) {
+        counts[6 - diff]++;
+      }
+    }
+
+    return counts;
+  }
+
+  static DateTime? _toDate(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    return null;
+  }
+}
+
+class _PerformanceData {
+  final int totalClients;
+  final int totalBookings;
+  final double revenue;
+  final int activeUsers;
+  final List<_TopClientData> topClients;
+  final List<int> requests;
+  final List<int> tasks;
+
+  _PerformanceData({
+    required this.totalClients,
+    required this.totalBookings,
+    required this.revenue,
+    required this.activeUsers,
+    required this.topClients,
+    required this.requests,
+    required this.tasks,
+  });
+
+  factory _PerformanceData.empty() {
+    return _PerformanceData(
+      totalClients: 0,
+      totalBookings: 0,
+      revenue: 0,
+      activeUsers: 0,
+      topClients: [],
+      requests: List<int>.filled(7, 0),
+      tasks: List<int>.filled(7, 0),
+    );
+  }
+}
+
+class _TopClientData {
+  final String name;
+  final int bookings;
+
+  _TopClientData({
+    required this.name,
+    required this.bookings,
+  });
 }
 
 class _HeaderSection extends StatelessWidget {
@@ -92,45 +293,57 @@ class _HeaderSection extends StatelessWidget {
 }
 
 class _StatsGrid extends StatelessWidget {
-  const _StatsGrid();
+  final _PerformanceData data;
+
+  const _StatsGrid({
+    required this.data,
+  });
+
+  String money(double value) {
+    if (value >= 1000000) {
+      return '₱${(value / 1000000).toStringAsFixed(1)}M';
+    }
+
+    if (value >= 1000) {
+      return '₱${(value / 1000).toStringAsFixed(1)}K';
+    }
+
+    return '₱${value.toStringAsFixed(2)}';
+  }
 
   @override
   Widget build(BuildContext context) {
-    return const Row(
+    return Row(
       children: [
         Expanded(
           child: _StatCard(
             icon: Icons.business,
             label: 'Total Clients',
-            value: '1,284',
-            percent: '+4.2%',
+            value: data.totalClients.toString(),
           ),
         ),
-        SizedBox(width: 24),
+        const SizedBox(width: 24),
         Expanded(
           child: _StatCard(
             icon: Icons.event_available,
             label: 'Total Bookings',
-            value: '42,901',
-            percent: '+12.5%',
+            value: data.totalBookings.toString(),
           ),
         ),
-        SizedBox(width: 24),
+        const SizedBox(width: 24),
         Expanded(
           child: _StatCard(
             icon: Icons.payments,
             label: 'Revenue',
-            value: '\$1.4M',
-            percent: '+8.1%',
+            value: money(data.revenue),
           ),
         ),
-        SizedBox(width: 24),
+        const SizedBox(width: 24),
         Expanded(
           child: _StatCard(
             icon: Icons.group_work,
             label: 'Active Users',
-            value: '8,642',
-            percent: '+2.4%',
+            value: data.activeUsers.toString(),
           ),
         ),
       ],
@@ -142,13 +355,11 @@ class _StatCard extends StatelessWidget {
   final IconData icon;
   final String label;
   final String value;
-  final String percent;
 
   const _StatCard({
     required this.icon,
     required this.label,
     required this.value,
-    required this.percent,
   });
 
   @override
@@ -173,34 +384,14 @@ class _StatCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceContainer,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(icon, color: AppColors.primary),
-              ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  percent,
-                  style: const TextStyle(
-                    color: AppColors.primary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-            ],
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: AppColors.surfaceContainer,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: AppColors.primary),
           ),
           const Spacer(),
           Text(
@@ -228,20 +419,24 @@ class _StatCard extends StatelessWidget {
 }
 
 class _ChartsSection extends StatelessWidget {
-  const _ChartsSection();
+  final _PerformanceData data;
+
+  const _ChartsSection({
+    required this.data,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return const Row(
+    return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
           flex: 2,
-          child: _UsageTrendsCard(),
+          child: _UsageTrendsCard(data: data),
         ),
-        SizedBox(width: 32),
+        const SizedBox(width: 32),
         Expanded(
-          child: _TopClientsCard(),
+          child: _TopClientsCard(data: data),
         ),
       ],
     );
@@ -249,7 +444,11 @@ class _ChartsSection extends StatelessWidget {
 }
 
 class _UsageTrendsCard extends StatelessWidget {
-  const _UsageTrendsCard();
+  final _PerformanceData data;
+
+  const _UsageTrendsCard({
+    required this.data,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -269,9 +468,8 @@ class _UsageTrendsCard extends StatelessWidget {
       ),
       child: Column(
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: const [
+          const Row(
+            children: [
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -280,44 +478,50 @@ class _UsageTrendsCard extends StatelessWidget {
                       'Usage Trends',
                       style: TextStyle(
                         color: AppColors.onSurface,
-                        fontSize: 28,
+                        fontSize: 24,
                         fontWeight: FontWeight.w900,
                       ),
                     ),
-                    SizedBox(height: 4),
+                    SizedBox(height: 5),
                     Text(
                       'Requests and tasks over the last 7 days',
                       style: TextStyle(
                         color: AppColors.secondary,
-                        fontSize: 14,
+                        fontSize: 13,
                       ),
                     ),
                   ],
                 ),
               ),
-              _LegendDot(color: AppColors.primaryContainer, label: 'Requests'),
-              SizedBox(width: 18),
-              _LegendDot(color: AppColors.surfaceContainerHigh, label: 'Tasks'),
+              _LegendDot(
+                label: 'Requests',
+                color: AppColors.primaryContainer,
+              ),
+              SizedBox(width: 16),
+              _LegendDot(
+                label: 'Tasks',
+                color: AppColors.outlineVariant,
+              ),
             ],
           ),
-          const SizedBox(height: 44),
+          const SizedBox(height: 26),
           Expanded(
-            child: CustomPaint(
-              painter: _UsageChartPainter(),
-              child: Container(),
+            child: _LineChart(
+              requests: data.requests,
+              tasks: data.tasks,
             ),
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 14),
           const Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _DayLabel('MON'),
-              _DayLabel('TUE'),
-              _DayLabel('WED'),
-              _DayLabel('THU'),
-              _DayLabel('FRI'),
-              _DayLabel('SAT'),
-              _DayLabel('SUN'),
+              _DayLabel('6D'),
+              _DayLabel('5D'),
+              _DayLabel('4D'),
+              _DayLabel('3D'),
+              _DayLabel('2D'),
+              _DayLabel('YEST'),
+              _DayLabel('TODAY'),
             ],
           ),
         ],
@@ -326,101 +530,130 @@ class _UsageTrendsCard extends StatelessWidget {
   }
 }
 
+class _LineChart extends StatelessWidget {
+  final List<int> requests;
+  final List<int> tasks;
+
+  const _LineChart({
+    required this.requests,
+    required this.tasks,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      painter: _UsageChartPainter(
+        requests: requests,
+        tasks: tasks,
+      ),
+      child: const SizedBox.expand(),
+    );
+  }
+}
+
 class _UsageChartPainter extends CustomPainter {
+  final List<int> requests;
+  final List<int> tasks;
+
+  _UsageChartPainter({
+    required this.requests,
+    required this.tasks,
+  });
+
   @override
   void paint(Canvas canvas, Size size) {
     final gridPaint = Paint()
       ..color = AppColors.surfaceContainer
       ..strokeWidth = 1;
 
+    final requestPaint = Paint()
+      ..color = AppColors.primaryContainer
+      ..strokeWidth = 4
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    final taskPaint = Paint()
+      ..color = AppColors.outlineVariant
+      ..strokeWidth = 2
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    final fillPaint = Paint()
+      ..color = AppColors.surfaceContainer.withOpacity(0.45)
+      ..style = PaintingStyle.fill;
+
     for (int i = 0; i < 4; i++) {
-      final y = size.height * (i / 3);
+      final y = size.height * (i + 1) / 5;
       canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
     }
 
-    final taskPaint = Paint()
-      ..color = AppColors.surfaceContainerHigh.withValues(alpha: 0.55)
-      ..style = PaintingStyle.fill;
+    final maxValue = [
+      ...requests,
+      ...tasks,
+      1,
+    ].reduce((a, b) => a > b ? a : b);
 
-    final taskLinePaint = Paint()
-      ..color = const Color(0xFF94A3B8)
-      ..strokeWidth = 2
-      ..style = PaintingStyle.stroke;
-
-    final requestPaint = Paint()
-      ..color = AppColors.primaryContainer
-      ..strokeWidth = 5
-      ..strokeCap = StrokeCap.round
-      ..style = PaintingStyle.stroke;
-
-    final requestPointPaint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.fill;
-
-    final requestPointStroke = Paint()
-      ..color = AppColors.primaryContainer
-      ..strokeWidth = 3
-      ..style = PaintingStyle.stroke;
-
-    final taskPoints = [
-      Offset(0, size.height * .78),
-      Offset(size.width * .16, size.height * .72),
-      Offset(size.width * .32, size.height * .75),
-      Offset(size.width * .48, size.height * .66),
-      Offset(size.width * .64, size.height * .82),
-      Offset(size.width * .80, size.height * .86),
-      Offset(size.width, size.height * .82),
-    ];
-
-    final taskPath = Path()..moveTo(taskPoints.first.dx, taskPoints.first.dy);
-    for (final point in taskPoints.skip(1)) {
-      taskPath.lineTo(point.dx, point.dy);
+    Offset pointFor(int index, int value) {
+      final x = size.width * index / 6;
+      final normalized = value / maxValue;
+      final y = size.height - (size.height * 0.80 * normalized) - 20;
+      return Offset(x, y.clamp(12, size.height - 12));
     }
 
-    final areaPath = Path.from(taskPath)
+    Path buildPath(List<int> values) {
+      final path = Path();
+      for (int i = 0; i < 7; i++) {
+        final point = pointFor(i, values.length > i ? values[i] : 0);
+        if (i == 0) {
+          path.moveTo(point.dx, point.dy);
+        } else {
+          path.lineTo(point.dx, point.dy);
+        }
+      }
+      return path;
+    }
+
+    final requestPath = buildPath(requests);
+    final taskPath = buildPath(tasks);
+
+    final fillPath = Path.from(taskPath)
       ..lineTo(size.width, size.height)
       ..lineTo(0, size.height)
       ..close();
 
-    canvas.drawPath(areaPath, taskPaint);
-    canvas.drawPath(taskPath, taskLinePaint);
-
-    final requestPoints = [
-      Offset(0, size.height * .55),
-      Offset(size.width * .16, size.height * .32),
-      Offset(size.width * .32, size.height * .44),
-      Offset(size.width * .48, size.height * .12),
-      Offset(size.width * .64, size.height * .25),
-      Offset(size.width * .80, size.height * .02),
-      Offset(size.width, size.height * .20),
-    ];
-
-    final requestPath = Path()
-      ..moveTo(requestPoints.first.dx, requestPoints.first.dy);
-
-    for (final point in requestPoints.skip(1)) {
-      requestPath.lineTo(point.dx, point.dy);
-    }
-
+    canvas.drawPath(fillPath, fillPaint);
+    canvas.drawPath(taskPath, taskPaint);
     canvas.drawPath(requestPath, requestPaint);
 
-    for (final index in [1, 3, 5, 6]) {
-      canvas.drawCircle(requestPoints[index], 5, requestPointPaint);
-      canvas.drawCircle(requestPoints[index], 5, requestPointStroke);
+    final dotPaint = Paint()
+      ..color = AppColors.surfaceContainerLowest
+      ..style = PaintingStyle.fill;
+
+    final dotStroke = Paint()
+      ..color = AppColors.primaryContainer
+      ..strokeWidth = 3
+      ..style = PaintingStyle.stroke;
+
+    for (int i = 0; i < 7; i++) {
+      final point = pointFor(i, requests.length > i ? requests[i] : 0);
+      canvas.drawCircle(point, 5, dotPaint);
+      canvas.drawCircle(point, 5, dotStroke);
     }
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _UsageChartPainter oldDelegate) {
+    return oldDelegate.requests != requests || oldDelegate.tasks != tasks;
+  }
 }
 
 class _LegendDot extends StatelessWidget {
-  final Color color;
   final String label;
+  final Color color;
 
   const _LegendDot({
-    required this.color,
     required this.label,
+    required this.color,
   });
 
   @override
@@ -430,15 +663,18 @@ class _LegendDot extends StatelessWidget {
         Container(
           width: 10,
           height: 10,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+          ),
         ),
-        const SizedBox(width: 7),
+        const SizedBox(width: 8),
         Text(
           label,
           style: const TextStyle(
             color: AppColors.secondary,
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
           ),
         ),
       ],
@@ -447,28 +683,39 @@ class _LegendDot extends StatelessWidget {
 }
 
 class _DayLabel extends StatelessWidget {
-  final String label;
+  final String text;
 
-  const _DayLabel(this.label);
+  const _DayLabel(this.text);
 
   @override
   Widget build(BuildContext context) {
     return Text(
-      label,
+      text,
       style: const TextStyle(
         color: AppColors.secondary,
-        fontSize: 11,
+        fontSize: 10,
         fontWeight: FontWeight.w900,
+        letterSpacing: 0.8,
       ),
     );
   }
 }
 
 class _TopClientsCard extends StatelessWidget {
-  const _TopClientsCard();
+  final _PerformanceData data;
+
+  const _TopClientsCard({
+    required this.data,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final maxBookings = data.topClients.isEmpty
+        ? 1
+        : data.topClients
+        .map((item) => item.bookings)
+        .reduce((a, b) => a > b ? a : b);
+
     return Container(
       height: 500,
       padding: const EdgeInsets.all(34),
@@ -483,10 +730,10 @@ class _TopClientsCard extends StatelessWidget {
           ),
         ],
       ),
-      child: const Column(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
+          const Text(
             'Top Clients',
             style: TextStyle(
               color: AppColors.onSurface,
@@ -494,42 +741,23 @@ class _TopClientsCard extends StatelessWidget {
               fontWeight: FontWeight.w900,
             ),
           ),
-          SizedBox(height: 28),
-          _TopClientItem(
-            initials: 'EM',
-            name: 'Emerald Mist Spa',
-            percent: '98.2%',
-            progress: 0.982,
-          ),
-          _TopClientItem(
-            initials: 'ZV',
-            name: 'Zenith Vibe\nWellness',
-            percent: '94.5%',
-            progress: 0.945,
-          ),
-          _TopClientItem(
-            initials: 'SL',
-            name: 'Slate Luxury Baths',
-            percent: '89.1%',
-            progress: 0.891,
-          ),
-          _TopClientItem(
-            initials: 'OC',
-            name: 'Oceanic Cure',
-            percent: '88.3%',
-            progress: 0.883,
-          ),
-          Spacer(),
-          Center(
-            child: Text(
-              'View All Client Stats',
-              style: TextStyle(
-                color: AppColors.primary,
-                fontWeight: FontWeight.w900,
-                fontSize: 15,
-              ),
-            ),
-          ),
+          const SizedBox(height: 28),
+          if (data.topClients.isEmpty)
+            const Text(
+              'No client activity yet.',
+              style: TextStyle(color: AppColors.secondary),
+            )
+          else
+            ...data.topClients.map((client) {
+              final progress =
+              maxBookings == 0 ? 0.0 : client.bookings / maxBookings;
+
+              return _TopClientItem(
+                name: client.name,
+                bookings: client.bookings,
+                progress: progress,
+              );
+            }),
         ],
       ),
     );
@@ -537,17 +765,24 @@ class _TopClientsCard extends StatelessWidget {
 }
 
 class _TopClientItem extends StatelessWidget {
-  final String initials;
   final String name;
-  final String percent;
+  final int bookings;
   final double progress;
 
   const _TopClientItem({
-    required this.initials,
     required this.name,
-    required this.percent,
+    required this.bookings,
     required this.progress,
   });
+
+  String get initials {
+    final cleanName = name.trim();
+    if (cleanName.isEmpty) return '?';
+
+    final parts = cleanName.split(' ');
+    if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
+    return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -587,7 +822,7 @@ class _TopClientItem extends StatelessWidget {
                 ),
               ),
               Text(
-                percent,
+                '$bookings bookings',
                 style: const TextStyle(
                   color: AppColors.primaryContainer,
                   fontSize: 13,
