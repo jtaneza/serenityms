@@ -13,7 +13,7 @@ import '../policy/client_policy_page.dart';
 import '../reports/client_reports_page.dart';
 import '../dashboard/client_dashboard_page.dart';
 import '../settings/client_settings_page.dart';
-
+import '../archive/client_archive_page.dart';
 
 class ClientSidebar extends StatelessWidget {
   final UserModel user;
@@ -67,6 +67,11 @@ class ClientSidebar extends StatelessWidget {
       icon: Icons.settings_outlined,
       title: 'Settings',
       routeKey: 'settings',
+    ),
+    _ClientNavItem(
+      icon: Icons.archive_outlined,
+      title: 'Archive',
+      routeKey: 'archive',
     ),
   ];
 
@@ -173,6 +178,9 @@ class ClientSidebar extends StatelessWidget {
                 }
                 if (item.routeKey == 'settings') {
                   _goToPage(context, ClientSettingsPage(user: user));
+                }
+                if (item.routeKey == 'archive') {
+                  _goToPage(context, ClientArchivePage(user: user));
                 }
                 if (onMenuSelected != null) {
                   onMenuSelected!(item.routeKey);

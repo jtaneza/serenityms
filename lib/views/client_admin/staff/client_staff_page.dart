@@ -13,13 +13,62 @@ class ClientStaffPage extends StatelessWidget {
     required this.user,
   });
 
-  Future<void> deleteStaff(BuildContext context, String docId) async {
-    await FirebaseFirestore.instance.collection('staff').doc(docId).delete();
+  Future<void> archiveStaff(BuildContext context, String docId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Archive Staff'),
+        content: const Text('Are you sure you want to archive this staff member?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF00A884),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Archive'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    final staffRef = FirebaseFirestore.instance.collection('staff').doc(docId);
+    final staffSnap = await staffRef.get();
+
+    if (!staffSnap.exists) return;
+
+    final staffData = staffSnap.data() as Map<String, dynamic>;
+
+    await FirebaseFirestore.instance.collection('archives').add({
+      ...staffData,
+      'dataType': 'Archived Staff',
+      'collectionName': 'staff',
+      'originalDocId': docId,
+      'targetName': staffData['name'] ?? 'Unnamed Staff',
+      'tenantId': staffData['tenantId'] ?? user.tenantId,
+      'archivedAt': FieldValue.serverTimestamp(),
+      'archivedBy': user.uid,
+      'archivedByName': user.fullName,
+      'archivedByRole': 'client_admin',
+      'restored': false,
+      'status': 'archived',
+    });
+
+    await staffRef.update({
+      'isArchived': true,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
 
     if (!context.mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Staff member deleted')),
+      const SnackBar(content: Text('Staff member archived')),
     );
   }
 
@@ -232,7 +281,7 @@ class ClientStaffPage extends StatelessWidget {
                                   ),
                                 );
                               },
-                              onDelete: () => deleteStaff(context, doc.id),
+                              onDelete: () => archiveStaff(context, doc.id),
                             );
                           }),
                         Container(
@@ -397,8 +446,8 @@ class StaffRow extends StatelessWidget {
                 ),
                 IconButton(
                   onPressed: onDelete,
-                  icon: const Icon(Icons.delete_outline, size: 20),
-                  color: const Color(0xFFBA1A1A),
+                  icon: const Icon(Icons.archive_outlined, size: 20),
+                  color: const Color(0xFF006B55),
                 ),
               ],
             ),

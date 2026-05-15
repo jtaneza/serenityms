@@ -42,7 +42,59 @@ class _ClientServicesPageState extends State<ClientServicesPage> {
   }
 
   Future<void> _archiveService(String docId) async {
-    await FirebaseFirestore.instance.collection('services').doc(docId).update({
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text(
+          'Archive Service',
+          style: TextStyle(fontWeight: FontWeight.w900),
+        ),
+        content: const Text(
+          'Are you sure you want to archive this service? It will be moved to the Archive page.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF00A884),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Archive'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    final serviceRef =
+    FirebaseFirestore.instance.collection('services').doc(docId);
+    final serviceSnap = await serviceRef.get();
+
+    if (!serviceSnap.exists) return;
+
+    final serviceData = serviceSnap.data() as Map<String, dynamic>;
+
+    await FirebaseFirestore.instance.collection('archives').add({
+      ...serviceData,
+      'dataType': 'Archived Service',
+      'collectionName': 'services',
+      'originalDocId': docId,
+      'targetName': serviceData['name'] ?? 'Unnamed Service',
+      'tenantId': serviceData['tenantId'] ?? widget.user.tenantId,
+      'archivedAt': FieldValue.serverTimestamp(),
+      'archivedBy': widget.user.uid,
+      'archivedByName': widget.user.fullName,
+      'archivedByRole': 'client_admin',
+      'restored': false,
+      'status': 'archived',
+    });
+
+    await serviceRef.update({
       'isArchived': true,
       'updatedAt': FieldValue.serverTimestamp(),
     });
@@ -52,7 +104,7 @@ class _ClientServicesPageState extends State<ClientServicesPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Service archived.'),
-        backgroundColor: Color(0xFFBA1A1A),
+        backgroundColor: Color(0xFF00A884),
       ),
     );
   }

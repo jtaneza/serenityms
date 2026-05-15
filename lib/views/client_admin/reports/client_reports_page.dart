@@ -1,9 +1,10 @@
 import 'dart:typed_data';
-import 'package:printing/printing.dart';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 import '../../../models/user_model.dart';
 import '../widgets/client_main_layout.dart';
@@ -39,16 +40,64 @@ class _ClientReportsPageState extends State<ClientReportsPage> {
     return num.tryParse(value.toString()) ?? 0;
   }
 
-  DateTime? getDate(Map<String, dynamic> data) {
-    final createdAt = data['createdAt'];
-    final appointmentDate = data['appointmentDate'];
-    final updatedAt = data['updatedAt'];
+  DateTime? parseAnyDate(dynamic value) {
+    if (value == null) return null;
 
-    if (createdAt is Timestamp) return createdAt.toDate();
-    if (appointmentDate is Timestamp) return appointmentDate.toDate();
-    if (updatedAt is Timestamp) return updatedAt.toDate();
+    if (value is Timestamp) return value.toDate();
+
+    final raw = value.toString().trim();
+    if (raw.isEmpty) return null;
+
+    final iso = DateTime.tryParse(raw);
+    if (iso != null) return iso;
+
+    final slashParts = raw.split('/');
+    if (slashParts.length == 3) {
+      final month = int.tryParse(slashParts[0]);
+      final day = int.tryParse(slashParts[1]);
+      final year = int.tryParse(slashParts[2]);
+
+      if (month != null && day != null && year != null) {
+        return DateTime(year, month, day);
+      }
+    }
+
+    final monthNames = {
+      'january': 1,
+      'february': 2,
+      'march': 3,
+      'april': 4,
+      'may': 5,
+      'june': 6,
+      'july': 7,
+      'august': 8,
+      'september': 9,
+      'october': 10,
+      'november': 11,
+      'december': 12,
+    };
+
+    final cleaned = raw.replaceAll(',', '');
+    final parts = cleaned.split(' ');
+
+    if (parts.length >= 3) {
+      final month = monthNames[parts[0].toLowerCase()];
+      final day = int.tryParse(parts[1]);
+      final year = int.tryParse(parts[2]);
+
+      if (month != null && day != null && year != null) {
+        return DateTime(year, month, day);
+      }
+    }
 
     return null;
+  }
+
+  DateTime? getDate(Map<String, dynamic> data) {
+    return parseAnyDate(data['appointmentDate']) ??
+        parseAnyDate(data['date']) ??
+        parseAnyDate(data['createdAt']) ??
+        parseAnyDate(data['updatedAt']);
   }
 
   bool inSelectedFilter(Map<String, dynamic> data) {
@@ -64,7 +113,10 @@ class _ClientReportsPageState extends State<ClientReportsPage> {
     }
 
     if (selectedReportFilter == 'Weekly') {
-      return now.difference(date).inDays <= 7;
+      final startOfToday = DateTime(now.year, now.month, now.day);
+      final selectedDay = DateTime(date.year, date.month, date.day);
+      final difference = startOfToday.difference(selectedDay).inDays;
+      return difference >= 0 && difference <= 7;
     }
 
     if (selectedReportFilter == 'Monthly') {
@@ -79,16 +131,19 @@ class _ClientReportsPageState extends State<ClientReportsPage> {
   }
 
   String formatDate(dynamic value) {
-    if (value is Timestamp) {
-      final date = value.toDate();
-      return '${date.month}/${date.day}/${date.year}';
-    }
+    final date = parseAnyDate(value);
 
-    return 'No date';
+    if (date == null) return 'No date';
+
+    return '${date.month}/${date.day}/${date.year}';
   }
 
   String formatTime(Map<String, dynamic> data) {
-    return (data['appointmentTime'] ?? '').toString();
+    return (data['appointmentTime'] ??
+        data['time'] ??
+        data['selectedTime'] ??
+        '')
+        .toString();
   }
 
   bool isFullPayment(Map<String, dynamic> data) {
@@ -99,6 +154,28 @@ class _ClientReportsPageState extends State<ClientReportsPage> {
     return status.contains('full payment') ||
         status.contains('paid') ||
         status.contains('verified');
+  }
+
+  bool isRealAppointment(Map<String, dynamic> data) {
+    final status = (data['status'] ?? '').toString().toLowerCase().trim();
+
+    return status.isNotEmpty &&
+        status != 'deleted' &&
+        status != 'archived';
+  }
+
+  bool isPendingAppointment(Map<String, dynamic> data) {
+    final status = (data['status'] ?? '').toString().toLowerCase().trim();
+
+    return status == 'pending' ||
+        status == 'pending request' ||
+        status == 'waiting for approval';
+  }
+
+  bool isCompletedAppointment(Map<String, dynamic> data) {
+    final status = (data['status'] ?? '').toString().toLowerCase().trim();
+
+    return status == 'completed';
   }
 
   Future<void> downloadReportPdf({
@@ -137,16 +214,19 @@ class _ClientReportsPageState extends State<ClientReportsPage> {
     final pdf = pw.Document();
 
     String pdfDate(dynamic value) {
-      if (value is Timestamp) {
-        final date = value.toDate();
-        return '${date.month}/${date.day}/${date.year}';
-      }
+      final date = parseAnyDate(value);
 
-      return 'No date';
+      if (date == null) return 'No date';
+
+      return '${date.month}/${date.day}/${date.year}';
     }
 
     String pdfTime(Map<String, dynamic> data) {
-      return (data['appointmentTime'] ?? '').toString();
+      return (data['appointmentTime'] ??
+          data['time'] ??
+          data['selectedTime'] ??
+          '')
+          .toString();
     }
 
     String money(dynamic value) {
@@ -214,7 +294,7 @@ class _ClientReportsPageState extends State<ClientReportsPage> {
                 ],
                 data: salesRecords.map((data) {
                   return [
-                    pdfDate(data['createdAt']),
+                    pdfDate(data['createdAt'] ?? data['date']),
                     (data['serviceName'] ?? data['service'] ?? 'Service')
                         .toString(),
                     (data['customerName'] ?? 'Customer').toString(),
@@ -257,7 +337,9 @@ class _ClientReportsPageState extends State<ClientReportsPage> {
                 ],
                 data: appointmentRecords.map((data) {
                   return [
-                    pdfDate(data['appointmentDate']),
+                    pdfDate(data['appointmentDate'] ??
+                        data['date'] ??
+                        data['createdAt']),
                     pdfTime(data),
                     (data['customerName'] ?? 'Customer').toString(),
                     (data['serviceName'] ?? 'Service').toString(),
@@ -309,8 +391,9 @@ class _ClientReportsPageState extends State<ClientReportsPage> {
                     .map((doc) => doc.data() as Map<String, dynamic>)
                     .toList();
 
-                final filteredAppointments =
-                allAppointments.where(inSelectedFilter).toList();
+                final filteredAppointments = allAppointments.where((data) {
+                  return isRealAppointment(data) && inSelectedFilter(data);
+                }).toList();
 
                 final salesRecords = paymentDocs
                     .map((doc) => doc.data() as Map<String, dynamic>)
@@ -323,24 +406,22 @@ class _ClientReportsPageState extends State<ClientReportsPage> {
                       (sum, data) => sum + toNumber(data['amount']),
                 );
 
-                final completedCount = filteredAppointments.where((data) {
-                  return (data['status'] ?? '').toString().toLowerCase() ==
-                      'completed';
-                }).length;
+                final completedCount =
+                    filteredAppointments.where(isCompletedAppointment).length;
 
                 final completionRate = filteredAppointments.isEmpty
                     ? 0
                     : ((completedCount / filteredAppointments.length) * 100)
                     .round();
 
-                final pendingCount = filteredAppointments.where((data) {
-                  return (data['status'] ?? '').toString().toLowerCase() ==
-                      'pending';
-                }).length;
+                final pendingCount =
+                    filteredAppointments.where(isPendingAppointment).length;
 
                 return SingleChildScrollView(
-                  padding:
-                  const EdgeInsets.symmetric(horizontal: 40, vertical: 42),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 40,
+                    vertical: 42,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -683,28 +764,30 @@ class _SalesReportTable extends StatelessWidget {
                   Expanded(
                     flex: 2,
                     child: Text(
-                      formatDate(data['createdAt']),
+                      formatDate(data['createdAt'] ?? data['date']),
                       style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
                   ),
                   Expanded(
                     flex: 3,
                     child: Text(
-                      data['serviceName'] ?? data['service'] ?? 'Service',
+                      (data['serviceName'] ?? data['service'] ?? 'Service')
+                          .toString(),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
                   Expanded(
                     flex: 3,
                     child: Text(
-                      data['customerName'] ?? 'Customer',
+                      (data['customerName'] ?? 'Customer').toString(),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
                   Expanded(
                     flex: 2,
                     child: Text(
-                      data['paymentMethod'] ?? data['method'] ?? '',
+                      (data['paymentMethod'] ?? data['method'] ?? '')
+                          .toString(),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -728,7 +811,9 @@ class _SalesReportTable extends StatelessWidget {
                   ),
                   Expanded(
                     flex: 2,
-                    child: _StatusText(status: data['status'] ?? 'Full Payment'),
+                    child: _StatusText(
+                      status: (data['status'] ?? 'Full Payment').toString(),
+                    ),
                   ),
                 ],
               );
@@ -777,7 +862,11 @@ class _AppointmentReportTable extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          formatDate(data['appointmentDate']),
+                          formatDate(
+                            data['appointmentDate'] ??
+                                data['date'] ??
+                                data['createdAt'],
+                          ),
                           style: const TextStyle(fontWeight: FontWeight.w900),
                         ),
                         Text(
@@ -792,23 +881,33 @@ class _AppointmentReportTable extends StatelessWidget {
                   ),
                   Expanded(
                     flex: 3,
-                    child: Text(data['customerName'] ?? 'Customer'),
-                  ),
-                  Expanded(
-                    flex: 3,
-                    child: Text(data['serviceName'] ?? 'Service'),
+                    child: Text(
+                      (data['customerName'] ?? 'Customer').toString(),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                   Expanded(
                     flex: 3,
                     child: Text(
-                      data['staffName'] ??
+                      (data['serviceName'] ?? 'Service').toString(),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Expanded(
+                    flex: 3,
+                    child: Text(
+                      (data['staffName'] ??
                           data['therapistName'] ??
-                          'Any available therapist',
+                          'Any available therapist')
+                          .toString(),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                   Expanded(
                     flex: 2,
-                    child: _StatusText(status: data['status'] ?? 'Pending'),
+                    child: _StatusText(
+                      status: (data['status'] ?? 'Pending').toString(),
+                    ),
                   ),
                 ],
               );
@@ -829,6 +928,9 @@ class _TableShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      constraints: const BoxConstraints(
+        maxHeight: 560,
+      ),
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: Colors.white,
@@ -841,7 +943,9 @@ class _TableShell extends StatelessWidget {
           ),
         ],
       ),
-      child: child,
+      child: SingleChildScrollView(
+        child: child,
+      ),
     );
   }
 }

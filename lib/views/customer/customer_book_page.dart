@@ -37,6 +37,27 @@ class _CustomerBookPageState extends State<CustomerBookPage> {
 
   final gcashReferenceController = TextEditingController();
 
+  final times = const [
+    '9:00 AM',
+    '10:00 AM',
+    '11:00 AM',
+    '12:00 PM',
+    '1:00 PM',
+    '2:00 PM',
+    '3:00 PM',
+    '4:00 PM',
+    '5:00 PM',
+    '6:00 PM',
+    '7:00 PM',
+    '8:00 PM',
+    '9:00 PM',
+    '10:00 PM',
+    '11:00 PM',
+    '12:00 AM',
+    '1:00 AM',
+    '2:00 AM',
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -50,7 +71,6 @@ class _CustomerBookPageState extends State<CustomerBookPage> {
     gcashReferenceController.dispose();
     super.dispose();
   }
-
 
   Future<void> loadBookingRules() async {
     try {
@@ -77,27 +97,6 @@ class _CustomerBookPageState extends State<CustomerBookPage> {
     }
   }
 
-  final times = const [
-    '9:00 AM',
-    '10:00 AM',
-    '11:00 AM',
-    '12:00 PM',
-    '1:00 PM',
-    '2:00 PM',
-    '3:00 PM',
-    '4:00 PM',
-    '5:00 PM',
-    '6:00 PM',
-    '7:00 PM',
-    '8:00 PM',
-    '9:00 PM',
-    '10:00 PM',
-    '11:00 PM',
-    '12:00 AM',
-    '1:00 AM',
-    '2:00 AM',
-  ];
-
   Stream<QuerySnapshot> get servicesStream {
     return FirebaseFirestore.instance
         .collection('services')
@@ -106,7 +105,10 @@ class _CustomerBookPageState extends State<CustomerBookPage> {
   }
 
   Stream<QuerySnapshot> get staffStream {
-    return FirebaseFirestore.instance.collection('staff').snapshots();
+    return FirebaseFirestore.instance
+        .collection('staff')
+        .where('isArchived', isEqualTo: false)
+        .snapshots();
   }
 
   String getServiceName(Map<String, dynamic> data) {
@@ -156,6 +158,110 @@ class _CustomerBookPageState extends State<CustomerBookPage> {
     return '${months[date.month - 1]} ${date.day}';
   }
 
+  String dayCode(DateTime date) {
+    const codes = ['M', 'T', 'W', 'TH', 'F', 'SA', 'SU'];
+    return codes[date.weekday - 1];
+  }
+
+  bool staffCanDoSelectedService(Map<String, dynamic> staffData) {
+    if (selectedService == null) return true;
+
+    final selectedName = getServiceName(selectedService!).toLowerCase().trim();
+    final selectedCategory = getCategory(selectedService!).toLowerCase().trim();
+
+    final services = staffData['services'];
+
+    if (services is List) {
+      final serviceNames = services.map((e) => e.toString().toLowerCase().trim());
+      if (serviceNames.contains(selectedName)) return true;
+    }
+
+    final role = (staffData['role'] ?? '').toString().toLowerCase();
+    final specialty = (staffData['specialty'] ??
+        staffData['specialization'] ??
+        '')
+        .toString()
+        .toLowerCase();
+
+    return role.contains(selectedCategory) || specialty.contains(selectedCategory);
+  }
+
+  bool staffIsSelectable(Map<String, dynamic> staffData) {
+    final status = (staffData['status'] ?? '').toString().toLowerCase();
+    final isAway = staffData['isAway'] == true;
+    final isArchived = staffData['isArchived'] == true;
+
+    if (isArchived || isAway) return false;
+
+    if (status.contains('rest') ||
+        status.contains('away') ||
+        status.contains('leave')) {
+      return false;
+    }
+
+    return true;
+  }
+
+  bool staffIsAvailableOnDate(DateTime date) {
+    if (selectedStaff == null) return false;
+    if (!staffIsSelectable(selectedStaff!)) return false;
+
+    final days = selectedStaff!['days'];
+
+    if (days is List) {
+      return days.map((e) => e.toString()).contains(dayCode(date));
+    }
+
+    return false;
+  }
+
+  DateTime? firstAvailableDate() {
+    final today = DateTime.now();
+
+    for (int i = 0; i <= 60; i++) {
+      final date = DateTime(today.year, today.month, today.day + i);
+
+      if (staffIsAvailableOnDate(date)) {
+        return date;
+      }
+    }
+
+    return null;
+  }
+
+  int timeToMinutes(String time) {
+    final parts = time.trim().split(' ');
+    final hm = parts[0].split(':');
+
+    int hour = int.parse(hm[0]);
+    final minute = int.parse(hm[1]);
+    final period = parts.length > 1 ? parts[1].toUpperCase() : 'AM';
+
+    if (period == 'PM' && hour != 12) hour += 12;
+    if (period == 'AM' && hour == 12) hour = 0;
+
+    return hour * 60 + minute;
+  }
+
+  bool staffIsAvailableAtTime(String time) {
+    if (selectedStaff == null) return false;
+
+    final startTime = (selectedStaff!['startTime'] ?? '').toString();
+    final endTime = (selectedStaff!['endTime'] ?? '').toString();
+
+    if (startTime.isEmpty || endTime.isEmpty) return true;
+
+    final selected = timeToMinutes(time);
+    final start = timeToMinutes(startTime);
+    final end = timeToMinutes(endTime);
+
+    if (end < start) {
+      return selected >= start || selected <= end;
+    }
+
+    return selected >= start && selected <= end;
+  }
+
   Future<void> confirmBooking() async {
     final user = FirebaseAuth.instance.currentUser;
 
@@ -164,8 +270,21 @@ class _CustomerBookPageState extends State<CustomerBookPage> {
       return;
     }
 
-    if (selectedService == null || selectedDate == null || selectedTime == null) {
+    if (selectedService == null ||
+        selectedStaff == null ||
+        selectedDate == null ||
+        selectedTime == null) {
       showMessage('Please complete booking details.');
+      return;
+    }
+
+    if (!staffIsAvailableOnDate(selectedDate!)) {
+      showMessage('Selected therapist is not available on this date.');
+      return;
+    }
+
+    if (!staffIsAvailableAtTime(selectedTime!)) {
+      showMessage('Selected therapist is not available at this time.');
       return;
     }
 
@@ -196,9 +315,7 @@ class _CustomerBookPageState extends State<CustomerBookPage> {
         'serviceCategory': getCategory(selectedService!),
         'serviceDuration': getDurationText(selectedService!),
         'staffId': selectedStaffId,
-        'staffName': selectedStaff == null
-            ? 'Any available therapist'
-            : (selectedStaff!['fullName'] ??
+        'staffName': (selectedStaff!['fullName'] ??
             selectedStaff!['name'] ??
             selectedStaff!['staffName'] ??
             'Therapist')
@@ -242,6 +359,11 @@ class _CustomerBookPageState extends State<CustomerBookPage> {
 
     if (step == 2 && selectedStaff == null) {
       showMessage('Please select a therapist.');
+      return;
+    }
+
+    if (step == 2 && selectedStaff != null && !staffIsSelectable(selectedStaff!)) {
+      showMessage('Selected therapist is currently not available.');
       return;
     }
 
@@ -354,6 +476,10 @@ class _CustomerBookPageState extends State<CustomerBookPage> {
                       setState(() {
                         selectedServiceId = doc.id;
                         selectedService = data;
+                        selectedStaffId = null;
+                        selectedStaff = null;
+                        selectedDate = null;
+                        selectedTime = null;
                       });
                     },
                   ),
@@ -386,46 +512,49 @@ class _CustomerBookPageState extends State<CustomerBookPage> {
               return const Center(child: CircularProgressIndicator());
             }
 
-            if (docs.isEmpty) {
-              return _SelectableCard(
-                active: selectedStaffId == 'any',
-                icon: Icons.person_outline,
-                title: 'Any available therapist',
-                subtitle: 'Assign automatically',
-                onTap: () {
-                  setState(() {
-                    selectedStaffId = 'any';
-                    selectedStaff = {
-                      'fullName': 'Any available therapist',
-                    };
-                  });
-                },
-              );
+            final filteredDocs = docs.where((doc) {
+              final data = doc.data() as Map<String, dynamic>;
+              return staffCanDoSelectedService(data);
+            }).toList();
+
+            if (filteredDocs.isEmpty) {
+              return const Text('No therapist available for this service.');
             }
 
             return Column(
-              children: docs.map((doc) {
+              children: filteredDocs.map((doc) {
                 final data = doc.data() as Map<String, dynamic>;
                 final active = selectedStaffId == doc.id;
+                final selectable = staffIsSelectable(data);
 
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 12),
                   child: _SelectableCard(
                     active: active,
+                    enabled: selectable,
                     icon: Icons.person_outline,
                     title: (data['fullName'] ??
                         data['name'] ??
                         data['staffName'] ??
                         'Therapist')
                         .toString(),
-                    subtitle: (data['specialty'] ??
+                    subtitle: selectable
+                        ? (data['specialty'] ??
                         data['specialization'] ??
                         'Massage Therapist')
-                        .toString(),
+                        .toString()
+                        : '${(data['specialty'] ?? data['specialization'] ?? 'Massage Therapist').toString()}\nCurrently unavailable',
                     onTap: () {
+                      if (!selectable) {
+                        showMessage('This therapist is currently not available.');
+                        return;
+                      }
+
                       setState(() {
                         selectedStaffId = doc.id;
                         selectedStaff = data;
+                        selectedDate = null;
+                        selectedTime = null;
                       });
                     },
                   ),
@@ -444,14 +573,47 @@ class _CustomerBookPageState extends State<CustomerBookPage> {
   }
 
   Widget buildDateTimeStep() {
-    final date = selectedDate ?? DateTime.now();
-    final start = DateTime(date.year, date.month, date.day);
+    final availableDate = firstAvailableDate();
+
+    if (availableDate == null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _SectionTitle('Select Date & Time'),
+          const SizedBox(height: 14),
+          const Text(
+            'This therapist has no available schedule in the next 60 days.',
+            style: TextStyle(
+              color: Color(0xFFE53935),
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 24),
+          _BackContinueRow(
+            onBack: () => setState(() => step--),
+            onContinue: null,
+          ),
+        ],
+      );
+    }
+
+    final calendarInitialDate = selectedDate ?? availableDate;
+    final queryDate = selectedDate ?? availableDate;
+    final start = DateTime(queryDate.year, queryDate.month, queryDate.day);
     final end = start.add(const Duration(days: 1));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const _SectionTitle('Select Date'),
+        const SizedBox(height: 8),
+        Text(
+          'Available days: ${(selectedStaff?['days'] as List?)?.join(', ') ?? 'No schedule'}',
+          style: const TextStyle(
+            color: Color(0xFF586062),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
         const SizedBox(height: 14),
         Container(
           width: double.infinity,
@@ -462,9 +624,12 @@ class _CustomerBookPageState extends State<CustomerBookPage> {
             border: Border.all(color: const Color(0xFFE1E8EA)),
           ),
           child: CalendarDatePicker(
-            initialDate: selectedDate ?? DateTime.now(),
+            initialDate: calendarInitialDate,
             firstDate: DateTime.now(),
             lastDate: DateTime.now().add(const Duration(days: 60)),
+            selectableDayPredicate: (date) {
+              return staffIsAvailableOnDate(date);
+            },
             onDateChanged: (date) {
               setState(() {
                 selectedDate = date;
@@ -476,8 +641,16 @@ class _CustomerBookPageState extends State<CustomerBookPage> {
         const SizedBox(height: 24),
         const _SectionTitle('Select Time'),
         const SizedBox(height: 8),
+        Text(
+          'Available time: ${selectedStaff?['startTime'] ?? ''} - ${selectedStaff?['endTime'] ?? ''}',
+          style: const TextStyle(
+            color: Color(0xFF586062),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 6),
         const Text(
-          'Red means your selected therapist is already booked at that time.',
+          'Red means the time is not available or already booked.',
           style: TextStyle(
             color: Color(0xFF586062),
             fontWeight: FontWeight.w600,
@@ -499,7 +672,7 @@ class _CustomerBookPageState extends State<CustomerBookPage> {
           builder: (context, snapshot) {
             final docs = snapshot.data?.docs ?? [];
 
-            bool isUnavailable(String time) {
+            bool isBooked(String time) {
               return docs.any((doc) {
                 final data = doc.data() as Map<String, dynamic>;
 
@@ -511,9 +684,8 @@ class _CustomerBookPageState extends State<CustomerBookPage> {
                 final activeBooking =
                     status == 'pending' || status == 'approved';
 
-                final sameStaff = selectedStaffId != null &&
-                    selectedStaffId != 'any' &&
-                    staffId == selectedStaffId;
+                final sameStaff =
+                    selectedStaffId != null && staffId == selectedStaffId;
 
                 return activeBooking && sameStaff && appointmentTime == time;
               });
@@ -524,10 +696,16 @@ class _CustomerBookPageState extends State<CustomerBookPage> {
               runSpacing: 10,
               children: times.map((time) {
                 final active = selectedTime == time;
-                final unavailable = isUnavailable(time);
+                final outsideSchedule = !staffIsAvailableAtTime(time);
+                final booked = isBooked(time);
+                final unavailable = outsideSchedule || booked;
+
+                String label = time;
+                if (booked) label = '$time\nBooked';
+                if (outsideSchedule) label = '$time\nUnavailable';
 
                 return _DateTimeChip(
-                  label: unavailable ? '$time\nBooked' : time,
+                  label: label,
                   active: active,
                   unavailable: unavailable,
                   onTap: unavailable
@@ -579,7 +757,7 @@ class _CustomerBookPageState extends State<CustomerBookPage> {
                 icon: Icons.person_outline,
                 label: 'Therapist',
                 value: selectedStaff == null
-                    ? 'Any available therapist'
+                    ? 'Therapist'
                     : (selectedStaff!['fullName'] ??
                     selectedStaff!['name'] ??
                     selectedStaff!['staffName'] ??
@@ -770,9 +948,8 @@ class _StepIndicator extends StatelessWidget {
                   : Text(
                 '$number',
                 style: TextStyle(
-                  color: active
-                      ? Colors.white
-                      : const Color(0xFF586062),
+                  color:
+                  active ? Colors.white : const Color(0xFF586062),
                   fontWeight: FontWeight.w900,
                 ),
               ),
@@ -794,6 +971,7 @@ class _StepIndicator extends StatelessWidget {
 
 class _SelectableCard extends StatelessWidget {
   final bool active;
+  final bool enabled;
   final IconData icon;
   final String title;
   final String subtitle;
@@ -805,66 +983,71 @@ class _SelectableCard extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.onTap,
+    this.enabled = true,
   });
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(18),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: active ? const Color(0xFF00B894) : const Color(0xFFDDE3E6),
+    return Opacity(
+      opacity: enabled ? 1 : 0.55,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color:
+              active ? const Color(0xFF00B894) : const Color(0xFFDDE3E6),
+            ),
           ),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 58,
-              height: 58,
-              decoration: BoxDecoration(
-                color: const Color(0xFFE6F5EF),
-                borderRadius: BorderRadius.circular(14),
+          child: Row(
+            children: [
+              Container(
+                width: 58,
+                height: 58,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE6F5EF),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, color: const Color(0xFF006B55), size: 30),
               ),
-              child: Icon(icon, color: const Color(0xFF006B55), size: 30),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Color(0xFF161D1F),
-                      fontWeight: FontWeight.w900,
-                      fontSize: 15,
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF161D1F),
+                        fontWeight: FontWeight.w900,
+                        fontSize: 15,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      color: Color(0xFF586062),
-                      fontWeight: FontWeight.w600,
+                    const SizedBox(height: 5),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        color: Color(0xFF586062),
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            if (active)
-              const Icon(
-                Icons.check_circle,
-                color: Color(0xFF00B894),
-              ),
-          ],
+              if (active)
+                const Icon(
+                  Icons.check_circle,
+                  color: Color(0xFF00B894),
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -906,7 +1089,7 @@ class _DateTimeChip extends StatelessWidget {
 
     return SizedBox(
       width: 98,
-      height: 50,
+      height: 54,
       child: OutlinedButton(
         onPressed: onTap,
         style: OutlinedButton.styleFrom(
@@ -922,7 +1105,7 @@ class _DateTimeChip extends StatelessWidget {
           textAlign: TextAlign.center,
           style: const TextStyle(
             fontWeight: FontWeight.w900,
-            fontSize: 12,
+            fontSize: 11,
           ),
         ),
       ),
@@ -1384,11 +1567,13 @@ class _BookingCard extends StatelessWidget {
           _StatusPill(status: status),
           const SizedBox(height: 12),
           Text('Type: ${data['serviceCategory'] ?? 'Massage Service'}'),
-          Text('Therapist: ${data['staffName'] ?? 'Any available therapist'}'),
+          Text('Therapist: ${data['staffName'] ?? 'Therapist'}'),
           Text('Date: $dateText'),
           Text('Time: ${data['appointmentTime'] ?? ''}'),
           Text('GCash Ref: ${data['gcashReferenceNumber'] ?? 'No reference'}'),
-          Text('Downpayment: ₱${data['downpayment'] ?? 0} (${data['downpaymentRate'] ?? 20}%)'),
+          Text(
+            'Downpayment: ₱${data['downpayment'] ?? 0} (${data['downpaymentRate'] ?? 20}%)',
+          ),
           if (canCancel) ...[
             const SizedBox(height: 14),
             SizedBox(

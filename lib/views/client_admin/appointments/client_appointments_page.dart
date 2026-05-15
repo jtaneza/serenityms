@@ -265,14 +265,31 @@ class _ClientAppointmentsPageState extends State<ClientAppointmentsPage> {
   List<QueryDocumentSnapshot> filterAppointments(List<QueryDocumentSnapshot> docs) {
     final visibleDocs = docs.where((doc) {
       final data = doc.data() as Map<String, dynamic>;
-      final status = (data['status'] ?? '').toString();
+      final status = (data['status'] ?? '').toString().toLowerCase();
 
-      return status != 'Pending';
+      return status != 'pending' &&
+          status != 'completed' &&
+          status != 'cancelled' &&
+          status != 'declined';
     }).toList();
 
-    if (selectedFilter == 'upcoming') return visibleDocs;
-
     final now = DateTime.now();
+
+    if (selectedFilter == 'upcoming') {
+      return visibleDocs.where((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        final value = data['appointmentDate'];
+
+        if (value is! Timestamp) return false;
+
+        final date = value.toDate();
+
+        return date.isAfter(
+          DateTime(now.year, now.month, now.day)
+              .subtract(const Duration(seconds: 1)),
+        );
+      }).toList();
+    }
 
     return visibleDocs.where((doc) {
       final data = doc.data() as Map<String, dynamic>;
