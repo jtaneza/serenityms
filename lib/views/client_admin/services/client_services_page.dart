@@ -217,7 +217,7 @@ class _ServicesHeader extends StatelessWidget {
             'Service Catalog',
             style: TextStyle(
               color: Color(0xFF161D1F),
-              fontSize: 44,
+              fontSize: 38,
               fontWeight: FontWeight.w900,
               height: 1.05,
               letterSpacing: -1.4,

@@ -466,7 +466,7 @@ class _ClientSettingsPageState extends State<ClientSettingsPage> {
               const Text(
                 'Settings',
                 style: TextStyle(
-                  fontSize: 54,
+                  fontSize: 38,
                   fontWeight: FontWeight.w900,
                   color: Color(0xFF161D1F),
                 ),

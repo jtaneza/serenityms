@@ -398,7 +398,7 @@ class _PageHeader extends StatelessWidget {
         const Text(
           'Appointments',
           style: TextStyle(
-            fontSize: 48,
+            fontSize: 38,
             fontWeight: FontWeight.w900,
             color: Color(0xFF161D1F),
             height: 1.05,

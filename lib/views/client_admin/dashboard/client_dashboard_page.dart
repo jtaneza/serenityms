@@ -103,7 +103,7 @@ class ClientDashboardPage extends StatelessWidget {
                           Text(
                             '${user.businessName} Dashboard',
                             style: const TextStyle(
-                              fontSize: 44,
+                              fontSize: 38,
                               fontWeight: FontWeight.w900,
                               color: Color(0xFF161D1F),
                             ),
