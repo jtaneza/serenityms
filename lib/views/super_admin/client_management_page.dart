@@ -2,8 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../../core/app_colors.dart';
 import '../../models/user_model.dart';
-import '../../widgets/admin_header.dart';
-import '../../widgets/admin_sidebar.dart';
+import '../../widgets/admin_main_layout.dart';
 import '../../services/client_auth_service.dart';
 
 class ClientManagementPage extends StatelessWidget {
@@ -16,28 +15,12 @@ class ClientManagementPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.surface,
-      body: Row(
-        children: [
-          AdminSidebar(
-            user: user,
-            selectedMenu: 'Client Management',
-          ),
-          Expanded(
-            child: Column(
-              children: [
-                AdminHeader(user: user),
-                const Expanded(
-                  child: SingleChildScrollView(
-                    padding: EdgeInsets.fromLTRB(40, 36, 40, 40),
-                    child: _ClientManagementContent(),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+    return AdminMainLayout(
+      user: user,
+      currentRoute: 'Client Management',
+      child: const SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(40, 36, 40, 40),
+        child: _ClientManagementContent(),
       ),
     );
   }
@@ -280,9 +263,10 @@ class _ClientManagementContentState extends State<_ClientManagementContent> {
                         ),
                       ),
                     ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(44, 42, 44, 36),
-                      child: Form(
+                    SingleChildScrollView(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(44, 42, 44, 36),
+                        child: Form(
                         key: formKey,
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
@@ -561,6 +545,7 @@ class _ClientManagementContentState extends State<_ClientManagementContent> {
                           ],
                         ),
                       ),
+                    ),
                     ),
                   ],
                 ),

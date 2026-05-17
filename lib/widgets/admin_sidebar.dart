@@ -106,35 +106,102 @@ class AdminSidebar extends StatelessWidget {
 
           const SizedBox(height: 34),
 
-          ...navItems.map(
-                (item) => _AdminSidebarTile(
-              item: item,
-              user: user,
-              isActive: item.title == selectedMenu,
+          Expanded(
+            child: CustomScrollView(
+              slivers: [
+                SliverList(
+                  delegate: SliverChildListDelegate(
+                    [
+                      ...navItems.map(
+                            (item) => _AdminSidebarTile(
+                          item: item,
+                          user: user,
+                          isActive: item.title == selectedMenu,
+                          onTap: () {
+                            if (item.title == selectedMenu) return;
+
+                            if (item.title == 'Dashboard') {
+                              Navigator.pushReplacement(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) => DashboardPage(user: user)),
+                              );
+                            } else if (item.title == 'Client Management') {
+                              Navigator.pushReplacement(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) =>
+                                        ClientManagementPage(user: user)),
+                              );
+                            } else if (item.title == 'Subscriptions & Licenses') {
+                              Navigator.pushReplacement(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) =>
+                                        SubscriptionsLicensesPage(user: user)),
+                              );
+                            } else if (item.title == 'View System Performance') {
+                              Navigator.pushReplacement(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) =>
+                                        SystemPerformancePage(user: user)),
+                              );
+                            } else if (item.title == 'Configure System Settings') {
+                              Navigator.pushReplacement(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) => SystemSettingsPage(user: user)),
+                              );
+                            } else if (item.title == 'View System Reports') {
+                              Navigator.pushReplacement(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) => SystemReportsPage(user: user)),
+                              );
+                            } else if (item.title == 'Backup & Restore') {
+                              Navigator.pushReplacement(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) => BackupRestorePage(user: user)),
+                              );
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      _AdminSidebarTile(
+                        item: const NavItemModel(
+                          icon: Icons.logout_outlined,
+                          title: 'Logout',
+                        ),
+                        user: user,
+                        isActive: false,
+                        onTap: () async {
+                          await AuthService.logout();
+
+                          if (context.mounted) {
+                            Navigator.of(context).pushAndRemoveUntil(
+                              MaterialPageRoute(builder: (context) => const LoginPage()),
+                                  (Route<dynamic> route) => false,
+                            );
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 18),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
-
-          const Spacer(),
-
-          _AdminSidebarTile(
-            item: const NavItemModel(
-              icon: Icons.logout_outlined,
-              title: 'Logout',
-            ),
-            user: user,
-            isActive: false,
-            onTap: () async {
-              await AuthService.logout();
-              if (context.mounted) {
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (_) => const LoginPage()),
-                );
-              }
-            },
-          ),
-
-          const SizedBox(height: 18),
         ],
       ),
     );

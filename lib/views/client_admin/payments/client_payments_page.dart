@@ -29,6 +29,112 @@ class _ClientPaymentsPageState extends State<ClientPaymentsPage> {
     super.dispose();
   }
 
+  void _openEditModal(String docId, String source, Map<String, dynamic> data) {
+    if (data['method'] == 'Cash' || data['paymentMethod'] == 'Cash') {
+      // Allow editing amount for cash
+    }
+    final amountCtrl = TextEditingController(text: (data['amount'] ?? data['downpayment'])?.toString() ?? '0');
+    final refCtrl = TextEditingController(text: (data['referenceNumber'] ?? data['gcashReferenceNumber'])?.toString() ?? '');
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Edit Payment'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: amountCtrl,
+                decoration: const InputDecoration(labelText: 'Amount'),
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: refCtrl,
+                decoration: const InputDecoration(labelText: 'Reference Number'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final collection = source == 'Online Booking' ? 'appointments' : 'payments';
+                if (source == 'Online Booking') {
+                  await FirebaseFirestore.instance.collection(collection).doc(docId).update({
+                    'downpayment': num.tryParse(amountCtrl.text) ?? 0,
+                    'gcashReferenceNumber': refCtrl.text,
+                    'updatedAt': FieldValue.serverTimestamp(),
+                  });
+                } else {
+                  await FirebaseFirestore.instance.collection(collection).doc(docId).update({
+                    'amount': num.tryParse(amountCtrl.text) ?? 0,
+                    'referenceNumber': refCtrl.text,
+                    'gcashReferenceNumber': refCtrl.text,
+                    'updatedAt': FieldValue.serverTimestamp(),
+                  });
+                }
+                if (mounted) Navigator.pop(context);
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _archivePayment(String docId, String source, Map<String, dynamic> data) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Archive Payment'),
+        content: const Text('Are you sure you want to archive this payment transaction?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00B894)),
+            child: const Text('Archive', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    final collection = source == 'Online Booking' ? 'appointments' : 'payments';
+
+    await FirebaseFirestore.instance.collection('archives').add({
+      ...data,
+      'dataType': 'Archived Payment',
+      'collectionName': collection,
+      'originalDocId': docId,
+      'archivedAt': FieldValue.serverTimestamp(),
+      'archivedBy': widget.user.uid,
+      'archivedByName': widget.user.fullName,
+      'status': 'archived',
+      'restored': false,
+    });
+
+    await FirebaseFirestore.instance.collection(collection).doc(docId).update({
+      'isArchived': true,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Payment archived successfully.')),
+    );
+  }
+
   void _openPaymentModal(String method) {
     showDialog(
       context: context,
@@ -297,15 +403,13 @@ class _ClientPaymentsPageState extends State<ClientPaymentsPage> {
                           appointmentsSnapshot.data?.docs ?? [];
 
                       final records = <_PaymentRecord>[
-                        ...paymentDocs.map(_paymentFromPaymentDoc),
+                        ...paymentDocs.where((d) => (d.data() as Map<String,dynamic>)['isArchived'] != true).map(_paymentFromPaymentDoc),
                         ...appointmentDocs
                             .where((doc) {
-                          final data =
-                          doc.data() as Map<String, dynamic>;
-                          final method =
-                          (data['paymentMethod'] ?? '').toString();
-                          final ref = (data['gcashReferenceNumber'] ?? '')
-                              .toString();
+                          final data = doc.data() as Map<String, dynamic>;
+                          if (data['isArchived'] == true) return false;
+                          final method = (data['paymentMethod'] ?? '').toString();
+                          final ref = (data['gcashReferenceNumber'] ?? '').toString();
 
                           return method == 'GCash' || ref.isNotEmpty;
                         })
@@ -324,6 +428,8 @@ class _ClientPaymentsPageState extends State<ClientPaymentsPage> {
                         records: filtered,
                         onVerify: verifyAppointmentPayment,
                         onMarkPending: markPaymentPending,
+                        onEdit: _openEditModal,
+                        onArchive: _archivePayment,
                       );
                     },
                   );
@@ -597,47 +703,60 @@ class PaymentsTable extends StatelessWidget {
   final List<_PaymentRecord> records;
   final ValueChanged<String> onVerify;
   final ValueChanged<String> onMarkPending;
+  final void Function(String id, String source, Map<String, dynamic> data) onEdit;
+  final void Function(String id, String source, Map<String, dynamic> data) onArchive;
 
   const PaymentsTable({
     super.key,
     required this.records,
     required this.onVerify,
     required this.onMarkPending,
+    required this.onEdit,
+    required this.onArchive,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 28,
-            offset: const Offset(0, 12),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const double minWidth = 1080;
+        final tableWidth = minWidth > constraints.maxWidth ? minWidth : constraints.maxWidth;
+
+        return Container(
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 28,
+                offset: const Offset(0, 12),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Container(
-            color: const Color(0xFFEEF5F7),
-            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 18),
-            child: const Row(
-              children: [
-                Expanded(flex: 3, child: TableHeader('CUSTOMER NAME')),
-                Expanded(flex: 3, child: TableHeader('SERVICE')),
-                Expanded(flex: 3, child: TableHeader('DATE/TIME')),
-                Expanded(flex: 2, child: TableHeader('AMOUNT')),
-                Expanded(flex: 2, child: TableHeader('METHOD')),
-                Expanded(flex: 3, child: TableHeader('REFERENCE')),
-                Expanded(flex: 2, child: TableHeader('STATUS')),
-                Expanded(flex: 2, child: TableHeader('ACTION')),
-              ],
-            ),
-          ),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SizedBox(
+              width: tableWidth,
+              child: Column(
+                children: [
+                  Container(
+                    color: const Color(0xFFEEF5F7),
+                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 18),
+                    child: const Row(
+                      children: [
+                        Expanded(flex: 3, child: TableHeader('CUSTOMER NAME')),
+                        Expanded(flex: 3, child: TableHeader('SERVICE')),
+                        Expanded(flex: 3, child: TableHeader('DATE/TIME')),
+                        Expanded(flex: 2, child: TableHeader('AMOUNT')),
+                        Expanded(flex: 2, child: TableHeader('METHOD')),
+                        Expanded(flex: 3, child: TableHeader('REFERENCE')),
+                        Expanded(flex: 2, child: Align(alignment: Alignment.center, child: TableHeader('STATUS'))),
+                        Expanded(flex: 3, child: Align(alignment: Alignment.center, child: TableHeader('ACTION'))),
+                      ],
+                    ),
+                  ),
           if (records.isEmpty)
             const Padding(
               padding: EdgeInsets.all(36),
@@ -652,19 +771,25 @@ class PaymentsTable extends StatelessWidget {
                 record: record,
                 onVerify: onVerify,
                 onMarkPending: onMarkPending,
+                onEdit: () => onEdit(record.id, record.source, record.rawData),
+                onArchive: () => onArchive(record.id, record.source, record.rawData),
               );
             }),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 18),
-            color: const Color(0x11EEF5F7),
-            alignment: Alignment.centerLeft,
-            child: Text(
-              'Showing ${records.length} transactions',
-              style: const TextStyle(color: Color(0xFF586062)),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 18),
+                    color: const Color(0x11EEF5F7),
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Showing ${records.length} transactions',
+                      style: const TextStyle(color: Color(0xFF586062)),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -673,12 +798,16 @@ class PaymentRow extends StatelessWidget {
   final _PaymentRecord record;
   final ValueChanged<String> onVerify;
   final ValueChanged<String> onMarkPending;
+  final VoidCallback onEdit;
+  final VoidCallback onArchive;
 
   const PaymentRow({
     super.key,
     required this.record,
     required this.onVerify,
     required this.onMarkPending,
+    required this.onEdit,
+    required this.onArchive,
   });
 
   @override
@@ -743,26 +872,39 @@ class PaymentRow extends StatelessWidget {
               style: const TextStyle(fontWeight: FontWeight.w700),
             ),
           ),
-          Expanded(flex: 2, child: PaymentStatusBadge(status: record.status)),
+          Expanded(flex: 2, child: Center(child: PaymentStatusBadge(status: record.status))),
           Expanded(
-            flex: 2,
-            child: isOnlineBooking
-                ? TextButton(
-              onPressed: () {
-                if (isVerified) {
-                  onMarkPending(record.id);
-                } else {
-                  onVerify(record.id);
-                }
-              },
-              child: Text(isVerified ? 'Undo' : 'Verify'),
-            )
-                : const Text(
-              'Manual',
-              style: TextStyle(
-                color: Color(0xFF586062),
-                fontWeight: FontWeight.w700,
-              ),
+            flex: 3,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (isOnlineBooking) ...[
+                  _TableActionButton(
+                    icon: isVerified ? Icons.undo : Icons.check_circle_outline,
+                    tooltip: isVerified ? 'Undo' : 'Verify',
+                    color: isVerified ? const Color(0xFF586062) : const Color(0xFF00B894),
+                    onTap: () {
+                      if (isVerified) {
+                        onMarkPending(record.id);
+                      } else {
+                        onVerify(record.id);
+                      }
+                    },
+                  ),
+                  const SizedBox(width: 4),
+                ],
+                _TableActionButton(
+                  icon: Icons.edit,
+                  tooltip: 'Edit',
+                  onTap: onEdit,
+                ),
+                const SizedBox(width: 4),
+                _TableActionButton(
+                  icon: Icons.archive,
+                  tooltip: 'Archive',
+                  onTap: onArchive,
+                ),
+              ],
             ),
           ),
         ],
@@ -866,6 +1008,36 @@ class TableHeader extends StatelessWidget {
         letterSpacing: 2,
         color: Color(0xFF586062),
         fontWeight: FontWeight.w800,
+      ),
+    );
+  }
+}
+
+class _TableActionButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+  final Color? color;
+
+  const _TableActionButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+    this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: SizedBox(
+          width: 32,
+          height: 32,
+          child: Icon(icon, color: color ?? const Color(0xFF586062), size: 20),
+        ),
       ),
     );
   }

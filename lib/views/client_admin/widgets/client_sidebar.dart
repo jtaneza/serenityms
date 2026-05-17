@@ -115,10 +115,12 @@ class ClientSidebar extends StatelessWidget {
                       Text(
                         user.businessName,
                         overflow: TextOverflow.ellipsis,
+                        maxLines: 2,
                         style: const TextStyle(
                           color: AppColors.primaryContainer,
-                          fontSize: 16,
+                          fontSize: 13,
                           fontWeight: FontWeight.w800,
+                          height: 1.25,
                         ),
                       ),
                       const SizedBox(height: 2),
@@ -138,80 +140,96 @@ class ClientSidebar extends StatelessWidget {
           ),
           const SizedBox(height: 34),
 
-          ...navItems.map(
-                (item) => _ClientSidebarTile(
-              item: item,
-              isActive: item.routeKey == currentRoute,
-              onTap: () {
-                if (item.routeKey == currentRoute) return;
+          Expanded(
+            child: CustomScrollView(
+              slivers: [
+                SliverList(
+                  delegate: SliverChildListDelegate(
+                    [
+                      ...navItems.map(
+                            (item) => _ClientSidebarTile(
+                          item: item,
+                          isActive: item.routeKey == currentRoute,
+                          onTap: () {
+                            if (item.routeKey == currentRoute) return;
 
-                if (item.routeKey == 'dashboard') {
-                  _goToPage(context, ClientDashboardPage(user: user));
-                  return;
-                }
-                if (item.routeKey == 'services') {
-                  _goToPage(context, ClientServicesPage(user: user));
-                  return;
-                }
+                            if (item.routeKey == 'dashboard') {
+                              _goToPage(context, ClientDashboardPage(user: user));
+                              return;
+                            }
+                            if (item.routeKey == 'services') {
+                              _goToPage(context, ClientServicesPage(user: user));
+                              return;
+                            }
 
-                if (item.routeKey == 'appointments') {
-                  _goToPage(context, ClientAppointmentsPage(user: user));
-                  return;
-                }
+                            if (item.routeKey == 'appointments') {
+                              _goToPage(context, ClientAppointmentsPage(user: user));
+                              return;
+                            }
 
-                if (item.routeKey == 'staff') {
-                  _goToPage(context, ClientStaffPage(user: user));
-                  return;
-                }
+                            if (item.routeKey == 'staff') {
+                              _goToPage(context, ClientStaffPage(user: user));
+                              return;
+                            }
 
-                if (item.routeKey == 'payments') {
-                  _goToPage(context, ClientPaymentsPage(user: user));
-                  return;
-                }
-                if (item.routeKey == 'policy') {
-                  _goToPage(context, ClientPolicyPage(user: user));
-                  return;
-                }
-                if (item.routeKey == 'reports') {
-                  _goToPage(context, ClientReportsPage(user: user));
-                  return;
-                }
-                if (item.routeKey == 'settings') {
-                  _goToPage(context, ClientSettingsPage(user: user));
-                }
-                if (item.routeKey == 'archive') {
-                  _goToPage(context, ClientArchivePage(user: user));
-                }
-                if (onMenuSelected != null) {
-                  onMenuSelected!(item.routeKey);
-                }
-              },
+                            if (item.routeKey == 'payments') {
+                              _goToPage(context, ClientPaymentsPage(user: user));
+                              return;
+                            }
+                            if (item.routeKey == 'policy') {
+                              _goToPage(context, ClientPolicyPage(user: user));
+                              return;
+                            }
+                            if (item.routeKey == 'reports') {
+                              _goToPage(context, ClientReportsPage(user: user));
+                              return;
+                            }
+                            if (item.routeKey == 'settings') {
+                              _goToPage(context, ClientSettingsPage(user: user));
+                            }
+                            if (item.routeKey == 'archive') {
+                              _goToPage(context, ClientArchivePage(user: user));
+                            }
+                            if (onMenuSelected != null) {
+                              onMenuSelected!(item.routeKey);
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      _ClientSidebarTile(
+                        item: const _ClientNavItem(
+                          icon: Icons.logout_outlined,
+                          title: 'Logout',
+                          routeKey: 'logout',
+                        ),
+                        isActive: false,
+                        onTap: () async {
+                          await AuthService.logout();
+
+                          if (context.mounted) {
+                            Navigator.pushNamedAndRemoveUntil(
+                              context,
+                              RouteNames.login,
+                                  (route) => false,
+                            );
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 18),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
-
-          const Spacer(),
-
-          _ClientSidebarTile(
-            item: const _ClientNavItem(
-              icon: Icons.logout_outlined,
-              title: 'Logout',
-              routeKey: 'logout',
-            ),
-            isActive: false,
-            onTap: () async {
-              await AuthService.logout();
-
-              if (context.mounted) {
-                Navigator.pushNamedAndRemoveUntil(
-                  context,
-                  RouteNames.login,
-                      (route) => false,
-                );
-              }
-            },
-          ),
-
-          const SizedBox(height: 18),
         ],
       ),
     );

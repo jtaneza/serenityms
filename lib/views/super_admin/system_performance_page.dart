@@ -3,8 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_colors.dart';
 import '../../models/user_model.dart';
-import '../../widgets/admin_header.dart';
-import '../../widgets/admin_sidebar.dart';
+import '../../widgets/admin_main_layout.dart';
 
 class SystemPerformancePage extends StatelessWidget {
   final UserModel user;
@@ -16,28 +15,12 @@ class SystemPerformancePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.surface,
-      body: Row(
-        children: [
-          AdminSidebar(
-            user: user,
-            selectedMenu: 'View System Performance',
-          ),
-          Expanded(
-            child: Column(
-              children: [
-                AdminHeader(user: user),
-                const Expanded(
-                  child: SingleChildScrollView(
-                    padding: EdgeInsets.fromLTRB(40, 36, 40, 40),
-                    child: _PerformanceContent(),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+    return AdminMainLayout(
+      user: user,
+      currentRoute: 'View System Performance',
+      child: const SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(40, 36, 40, 40),
+        child: _PerformanceContent(),
       ),
     );
   }

@@ -208,9 +208,9 @@ class _ServicesHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const SizedBox(
-      width: 820,
-      child: Column(
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 820),
+      child: const Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
@@ -426,7 +426,7 @@ class _ServicesTable extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _TableShell(
-      minWidth: 1180,
+      minWidth: 720,
       child: Column(
         children: [
           const _ServicesTableHeader(),
@@ -465,13 +465,33 @@ class _ServicesTableHeader extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 32),
       child: const Row(
         children: [
-          Expanded(flex: 26, child: _TableHeaderText('SERVICE NAME')),
-          Expanded(flex: 34, child: _TableHeaderText('DESCRIPTION')),
-          Expanded(flex: 16, child: _TableHeaderText('DURATION')),
+          Expanded(
+            flex: 26,
+            child: Row(
+              children: [
+                SizedBox(width: 58),
+                Expanded(child: _TableHeaderText('SERVICE NAME')),
+              ],
+            ),
+          ),
+          Expanded(
+            flex: 34,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: _TableHeaderText('DESCRIPTION'),
+            ),
+          ),
+          Expanded(
+            flex: 16,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: _TableHeaderText('DURATION'),
+            ),
+          ),
           Expanded(
             flex: 14,
             child: Align(
-              alignment: Alignment.centerRight,
+              alignment: Alignment.centerLeft,
               child: _TableHeaderText('PRICE'),
             ),
           ),
@@ -485,7 +505,7 @@ class _ServicesTableHeader extends StatelessWidget {
           Expanded(
             flex: 16,
             child: Align(
-              alignment: Alignment.centerRight,
+              alignment: Alignment.center,
               child: _TableHeaderText('ACTIONS'),
             ),
           ),
@@ -575,7 +595,7 @@ class _ServiceTableRow extends StatelessWidget {
           Expanded(
             flex: 14,
             child: Align(
-              alignment: Alignment.centerRight,
+              alignment: Alignment.centerLeft,
               child: Text(
                 '₱${double.tryParse(price.toString())?.toStringAsFixed(2) ?? price}',
                 style: const TextStyle(
@@ -595,7 +615,7 @@ class _ServiceTableRow extends StatelessWidget {
           Expanded(
             flex: 16,
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 _TableActionButton(
                   icon: Icons.edit,

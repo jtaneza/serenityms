@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
-import '../../../models/user_model.dart';
-import 'client_sidebar.dart';
-import 'client_header.dart';
+import '../models/user_model.dart';
+import 'admin_sidebar.dart';
+import 'admin_header.dart';
+import '../core/app_colors.dart';
 
-class ClientMainLayout extends StatelessWidget {
+class AdminMainLayout extends StatelessWidget {
   final UserModel user;
   final String currentRoute;
   final Widget child;
 
-  const ClientMainLayout({
+  const AdminMainLayout({
     super.key,
     required this.user,
     required this.currentRoute,
@@ -20,15 +21,15 @@ class ClientMainLayout extends StatelessWidget {
     final isDesktop = MediaQuery.of(context).size.width >= 900;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
+      backgroundColor: AppColors.surface,
       drawer: isDesktop
           ? null
           : SizedBox(
               width: 255,
               child: Drawer(
-                child: ClientSidebar(
+                child: AdminSidebar(
                   user: user,
-                  currentRoute: currentRoute,
+                  selectedMenu: currentRoute,
                 ),
               ),
             ),
@@ -36,14 +37,14 @@ class ClientMainLayout extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (isDesktop)
-            ClientSidebar(
+            AdminSidebar(
               user: user,
-              currentRoute: currentRoute,
+              selectedMenu: currentRoute,
             ),
           Expanded(
             child: Column(
               children: [
-                ClientHeader(user: user),
+                AdminHeader(user: user),
                 Expanded(child: child),
               ],
             ),

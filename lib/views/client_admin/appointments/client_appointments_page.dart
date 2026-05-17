@@ -392,10 +392,10 @@ class _PageHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Column(
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
+        const Text(
           'Appointments',
           style: TextStyle(
             fontSize: 48,
@@ -405,10 +405,10 @@ class _PageHeader extends StatelessWidget {
             letterSpacing: -1.4,
           ),
         ),
-        SizedBox(height: 18),
-        SizedBox(
-          width: 720,
-          child: Text(
+        const SizedBox(height: 18),
+        Container(
+          constraints: const BoxConstraints(maxWidth: 720),
+          child: const Text(
             'Manage customer booking requests, approvals, reschedules, cancellations, and appointment completion.',
             style: TextStyle(
               fontSize: 17,
@@ -573,7 +573,7 @@ class _BookingRequestsTable extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _TableShell(
-      minWidth: 1080,
+      minWidth: 720,
       childBuilder: (_) {
         return Column(
           children: [
@@ -704,8 +704,11 @@ class _BookingRequestRow extends StatelessWidget {
           ),
           Expanded(
             flex: 3,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 _ActionIconButton(
                   tooltip: 'Approve',
@@ -744,6 +747,7 @@ class _BookingRequestRow extends StatelessWidget {
                 ),
               ],
             ),
+            ),
           ),
         ],
       ),
@@ -767,7 +771,7 @@ class _AppointmentListTable extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _TableShell(
-      minWidth: 1080,
+      minWidth: 720,
       childBuilder: (_) {
         return Column(
           children: [
@@ -904,8 +908,11 @@ class _AppointmentRow extends StatelessWidget {
           ),
           Expanded(
             flex: 2,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 _ActionIconButton(
                   tooltip: 'Complete',
@@ -934,6 +941,7 @@ class _AppointmentRow extends StatelessWidget {
                   onTap: () => onCancel(docId),
                 ),
               ],
+            ),
             ),
           ),
         ],

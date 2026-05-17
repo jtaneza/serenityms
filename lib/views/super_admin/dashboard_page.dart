@@ -3,8 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_colors.dart';
 import '../../models/user_model.dart';
-import '../../widgets/admin_header.dart';
-import '../../widgets/admin_sidebar.dart';
+import '../../widgets/admin_main_layout.dart';
 
 class DashboardPage extends StatelessWidget {
   final UserModel user;
@@ -90,20 +89,10 @@ class DashboardPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.surface,
-      body: Row(
-        children: [
-          AdminSidebar(
-            user: user,
-            selectedMenu: 'Dashboard',
-          ),
-          Expanded(
-            child: Column(
-              children: [
-                AdminHeader(user: user),
-                Expanded(
-                  child: StreamBuilder<QuerySnapshot>(
+    return AdminMainLayout(
+      user: user,
+      currentRoute: 'Dashboard',
+      child: StreamBuilder<QuerySnapshot>(
                     stream: clientsStream,
                     builder: (context, clientSnapshot) {
                       return StreamBuilder<QuerySnapshot>(
@@ -253,12 +242,6 @@ class DashboardPage extends StatelessWidget {
                       );
                     },
                   ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 

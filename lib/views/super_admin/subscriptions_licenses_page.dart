@@ -3,8 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_colors.dart';
 import '../../models/user_model.dart';
-import '../../widgets/admin_header.dart';
-import '../../widgets/admin_sidebar.dart';
+import '../../widgets/admin_main_layout.dart';
 
 class SubscriptionsLicensesPage extends StatelessWidget {
   final UserModel user;
@@ -16,28 +15,12 @@ class SubscriptionsLicensesPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.surface,
-      body: Row(
-        children: [
-          AdminSidebar(
-            user: user,
-            selectedMenu: 'Subscriptions & Licenses',
-          ),
-          Expanded(
-            child: Column(
-              children: [
-                AdminHeader(user: user),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(40, 36, 40, 32),
-                    child: _SubscriptionContent(user: user),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+    return AdminMainLayout(
+      user: user,
+      currentRoute: 'Subscriptions & Licenses',
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(40, 36, 40, 32),
+        child: _SubscriptionContent(user: user),
       ),
     );
   }
@@ -1013,37 +996,40 @@ class _LicenseRow extends StatelessWidget {
             flex: 2,
             child: Align(
               alignment: Alignment.centerRight,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    tooltip: 'Edit license',
-                    onPressed: onEdit,
-                    icon: const Icon(
-                      Icons.edit,
-                      color: AppColors.secondary,
-                      size: 20,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: 'Edit license',
+                      onPressed: onEdit,
+                      icon: const Icon(
+                        Icons.edit,
+                        color: AppColors.secondary,
+                        size: 20,
+                      ),
                     ),
-                  ),
-                  IconButton(
-                    tooltip: 'Renew / activate license',
-                    onPressed: onRenew,
-                    icon: const Icon(
-                      Icons.verified,
-                      color: AppColors.primary,
-                      size: 20,
+                    IconButton(
+                      tooltip: 'Renew / activate license',
+                      onPressed: onRenew,
+                      icon: const Icon(
+                        Icons.verified,
+                        color: AppColors.primary,
+                        size: 20,
+                      ),
                     ),
-                  ),
-                  IconButton(
-                    tooltip: 'Archive license',
-                    onPressed: onArchive,
-                    icon: const Icon(
-                      Icons.archive,
-                      color: AppColors.secondary,
-                      size: 20,
+                    IconButton(
+                      tooltip: 'Archive license',
+                      onPressed: onArchive,
+                      icon: const Icon(
+                        Icons.archive,
+                        color: AppColors.secondary,
+                        size: 20,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

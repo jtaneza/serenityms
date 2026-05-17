@@ -4,8 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_colors.dart';
 import '../../models/user_model.dart';
-import '../../widgets/admin_header.dart';
-import '../../widgets/admin_sidebar.dart';
+import '../../widgets/admin_main_layout.dart';
 
 class BackupRestorePage extends StatefulWidget {
   final UserModel user;
@@ -46,6 +45,35 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
 
   Stream<QuerySnapshot> get paymentsStream {
     return firestore.collection('payments').snapshots();
+  }
+
+  Future<bool> _showConfirmDialog({
+    required String title,
+    required String content,
+    required String confirmText,
+    required Color confirmColor,
+  }) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+          content: Text(content),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(backgroundColor: confirmColor),
+              child: Text(confirmText, style: const TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    );
+    return result == true;
   }
 
   String formatDate(dynamic value) {
@@ -293,6 +321,14 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
   }
 
   Future<void> disableAccount(RecoverAccountModel account) async {
+    final confirm = await _showConfirmDialog(
+      title: 'Disable Account',
+      content: 'Are you sure you want to disable ${account.email}?',
+      confirmText: 'Disable',
+      confirmColor: AppColors.error,
+    );
+    if (!confirm) return;
+
     final batch = firestore.batch();
 
     batch.set(
@@ -353,6 +389,14 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
   }
 
   Future<void> restoreArchive(ArchiveItemModel item) async {
+    final confirm = await _showConfirmDialog(
+      title: 'Restore Record',
+      content: 'Are you sure you want to restore ${item.dataType} to the live system?',
+      confirmText: 'Restore',
+      confirmColor: AppColors.primary,
+    );
+    if (!confirm) return;
+
     final collectionName = item.collectionName;
     final originalDocId = item.originalDocId;
     final payload = item.archiveData['data'];
@@ -420,6 +464,14 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
   }
 
   Future<void> deleteArchive(ArchiveItemModel item) async {
+    final confirm = await _showConfirmDialog(
+      title: 'Delete Permanently',
+      content: 'Are you sure you want to permanently delete this ${item.dataType}? This action cannot be undone.',
+      confirmText: 'Delete',
+      confirmColor: AppColors.error,
+    );
+    if (!confirm) return;
+
     await firestore.collection('archives').doc(item.id).delete();
 
     if (!mounted) return;
@@ -540,20 +592,10 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.surface,
-      body: Row(
-        children: [
-          AdminSidebar(
-            user: widget.user,
-            selectedMenu: 'Backup & Restore',
-          ),
-          Expanded(
-            child: Column(
-              children: [
-                AdminHeader(user: widget.user),
-                Expanded(
-                  child: StreamBuilder<QuerySnapshot>(
+    return AdminMainLayout(
+      user: widget.user,
+      currentRoute: 'Backup & Restore',
+      child: StreamBuilder<QuerySnapshot>(
                     stream: archiveStream,
                     builder: (context, archiveSnapshot) {
                       return StreamBuilder<QuerySnapshot>(
@@ -657,12 +699,6 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
                       );
                     },
                   ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

@@ -368,26 +368,32 @@ class StaffRow extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 14),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      name,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 16,
-                        color: Color(0xFF161D1F),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                          color: Color(0xFF161D1F),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      role,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF586062),
+                      const SizedBox(height: 4),
+                      Text(
+                        role,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF586062),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -396,6 +402,8 @@ class StaffRow extends StatelessWidget {
             flex: 2,
             child: Text(
               specialty,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 color: Color(0xFF006B55),
                 fontWeight: FontWeight.w600,
@@ -545,7 +553,7 @@ class StaffStatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(26),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
@@ -573,7 +581,17 @@ class StaffStatCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Expanded(child: Text(title)),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF586062),
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
               Icon(icon, color: const Color(0xFF00B894)),
             ],
           ),

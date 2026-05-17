@@ -73,6 +73,14 @@ class ClientHeader extends StatelessWidget {
       color: AppColors.surface.withValues(alpha: 0.90),
       child: Row(
         children: [
+          if (MediaQuery.of(context).size.width < 900)
+            Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: IconButton(
+                icon: const Icon(Icons.menu, color: AppColors.onSurface),
+                onPressed: () => Scaffold.of(context).openDrawer(),
+              ),
+            ),
           const Spacer(),
 
           InkWell(

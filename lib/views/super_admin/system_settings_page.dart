@@ -3,8 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_colors.dart';
 import '../../models/user_model.dart';
-import '../../widgets/admin_header.dart';
-import '../../widgets/admin_sidebar.dart';
+import '../../widgets/admin_main_layout.dart';
 
 class SystemSettingsPage extends StatelessWidget {
   final UserModel user;
@@ -16,28 +15,12 @@ class SystemSettingsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.surface,
-      body: Row(
-        children: [
-          AdminSidebar(
-            user: user,
-            selectedMenu: 'Configure System Settings',
-          ),
-          Expanded(
-            child: Column(
-              children: [
-                AdminHeader(user: user),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(40, 36, 40, 40),
-                    child: _SystemSettingsContent(user: user),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+    return AdminMainLayout(
+      user: user,
+      currentRoute: 'Configure System Settings',
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(40, 36, 40, 40),
+        child: _SystemSettingsContent(user: user),
       ),
     );
   }

@@ -1,10 +1,14 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:convert';
+import 'dart:typed_data';
+import 'package:universal_html/html.dart' as html;
 import 'package:flutter/material.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
 
 import '../../core/app_colors.dart';
 import '../../models/user_model.dart';
-import '../../widgets/admin_header.dart';
-import '../../widgets/admin_sidebar.dart';
+import '../../widgets/admin_main_layout.dart';
 
 class SystemReportsPage extends StatefulWidget {
   final UserModel user;
@@ -333,20 +337,10 @@ class _SystemReportsPageState extends State<SystemReportsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.surface,
-      body: Row(
-        children: [
-          AdminSidebar(
-            user: widget.user,
-            selectedMenu: 'View System Reports',
-          ),
-          Expanded(
-            child: Column(
-              children: [
-                AdminHeader(user: widget.user),
-                Expanded(
-                  child: StreamBuilder<QuerySnapshot>(
+    return AdminMainLayout(
+      user: widget.user,
+      currentRoute: 'View System Reports',
+      child: StreamBuilder<QuerySnapshot>(
                     stream: clientsStream,
                     builder: (context, clientSnapshot) {
                       return StreamBuilder<QuerySnapshot>(
@@ -443,12 +437,6 @@ class _SystemReportsPageState extends State<SystemReportsPage> {
                       );
                     },
                   ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -512,7 +500,7 @@ class _SystemReportsContent extends StatelessWidget {
       children: [
         const _ReportsHeader(),
         const SizedBox(height: 46),
-        const _ReportCategoryCards(),
+        _ReportCategoryCards(onCardTap: onSearchChanged),
         const SizedBox(height: 54),
         _ReportsDataPanel(
           reports: reports,
@@ -564,11 +552,13 @@ class _ReportsHeader extends StatelessWidget {
 }
 
 class _ReportCategoryCards extends StatelessWidget {
-  const _ReportCategoryCards();
+  final ValueChanged<String> onCardTap;
+
+  const _ReportCategoryCards({required this.onCardTap});
 
   @override
   Widget build(BuildContext context) {
-    return const Row(
+    return Row(
       children: [
         Expanded(
           child: _ReportCategoryCard(
@@ -577,33 +567,37 @@ class _ReportCategoryCards extends StatelessWidget {
             description:
             'Summary of subscription payments and active billing records.',
             liveView: true,
+            onTap: () => onCardTap('Subscription Revenue Report'),
           ),
         ),
-        SizedBox(width: 24),
+        const SizedBox(width: 24),
         Expanded(
           child: _ReportCategoryCard(
             icon: Icons.storefront,
             title: 'Client Revenue Report',
             description:
             'Breakdown of earnings generated from each spa client account.',
+            onTap: () => onCardTap('Client Revenue Report'),
           ),
         ),
-        SizedBox(width: 24),
+        const SizedBox(width: 24),
         Expanded(
           child: _ReportCategoryCard(
             icon: Icons.calendar_month,
             title: 'Appointment Report',
             description:
             'Network-wide booking statistics and appointment activity.',
+            onTap: () => onCardTap('Appointment Report'),
           ),
         ),
-        SizedBox(width: 24),
+        const SizedBox(width: 24),
         Expanded(
           child: _ReportCategoryCard(
             icon: Icons.insights,
             title: 'Usage Report',
             description:
             'System activity based on bookings, payments, and records.',
+            onTap: () => onCardTap('Usage Report'),
           ),
         ),
       ],
@@ -616,11 +610,13 @@ class _ReportCategoryCard extends StatelessWidget {
   final String title;
   final String description;
   final bool liveView;
+  final VoidCallback onTap;
 
   const _ReportCategoryCard({
     required this.icon,
     required this.title,
     required this.description,
+    required this.onTap,
     this.liveView = false,
   });
 
@@ -628,7 +624,6 @@ class _ReportCategoryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height: 300,
-      padding: const EdgeInsets.all(28),
       decoration: BoxDecoration(
         color: AppColors.surfaceContainerLowest,
         borderRadius: BorderRadius.circular(14),
@@ -646,58 +641,68 @@ class _ReportCategoryCard extends StatelessWidget {
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 54,
-                height: 54,
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceContainerLow,
-                  borderRadius: BorderRadius.circular(10),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(14),
+          child: Padding(
+            padding: const EdgeInsets.all(28),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 54,
+                      height: 54,
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceContainerLow,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(
+                        icon,
+                        color: AppColors.primary,
+                        size: 26,
+                      ),
+                    ),
+                    const Spacer(),
+                    if (liveView)
+                      const Text(
+                        'LIVE VIEW',
+                        style: TextStyle(
+                          color: AppColors.primary,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.4,
+                        ),
+                      ),
+                  ],
                 ),
-                child: Icon(
-                  icon,
-                  color: AppColors.primary,
-                  size: 26,
-                ),
-              ),
-              const Spacer(),
-              if (liveView)
-                const Text(
-                  'LIVE VIEW',
-                  style: TextStyle(
-                    color: AppColors.primary,
-                    fontSize: 10,
+                const Spacer(),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: AppColors.onSurface,
+                    fontSize: 21,
+                    height: 1.2,
                     fontWeight: FontWeight.w900,
-                    letterSpacing: 1.4,
                   ),
                 ),
-            ],
-          ),
-          const Spacer(),
-          Text(
-            title,
-            style: const TextStyle(
-              color: AppColors.onSurface,
-              fontSize: 21,
-              height: 1.2,
-              fontWeight: FontWeight.w900,
+                const SizedBox(height: 12),
+                Text(
+                  description,
+                  style: const TextStyle(
+                    color: AppColors.secondary,
+                    fontSize: 14,
+                    height: 1.35,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 12),
-          Text(
-            description,
-            style: const TextStyle(
-              color: AppColors.secondary,
-              fontSize: 14,
-              height: 1.35,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -735,6 +740,7 @@ class _ReportsDataPanel extends StatelessWidget {
             selectedClient: selectedClient,
             onClientChanged: onClientChanged,
             onSearchChanged: onSearchChanged,
+            reports: reports,
           ),
           const SizedBox(height: 28),
           _ReportsTable(
@@ -752,12 +758,14 @@ class _ReportsFilterBar extends StatelessWidget {
   final String selectedClient;
   final ValueChanged<String?> onClientChanged;
   final ValueChanged<String> onSearchChanged;
+  final List<ReportRowModel> reports;
 
   const _ReportsFilterBar({
     required this.clients,
     required this.selectedClient,
     required this.onClientChanged,
     required this.onSearchChanged,
+    required this.reports,
   });
 
   @override
@@ -778,7 +786,7 @@ class _ReportsFilterBar extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 24),
-        const _ExportButton(),
+        _ExportButton(reports: reports),
       ],
     );
   }
@@ -916,7 +924,43 @@ InputDecoration _fieldDecoration() {
 }
 
 class _ExportButton extends StatelessWidget {
-  const _ExportButton();
+  final List<ReportRowModel> reports;
+
+  const _ExportButton({required this.reports});
+
+  Future<void> _exportPDF() async {
+    if (reports.isEmpty) return;
+    
+    final pdf = pw.Document();
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        build: (context) {
+          return [
+            pw.Header(level: 0, child: pw.Text('System Reports Data', style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold))),
+            pw.SizedBox(height: 20),
+            pw.TableHelper.fromTextArray(
+              context: context,
+              headers: ['Client Name', 'Report Type', 'Date', 'Value', 'Status'],
+              data: reports.map((r) {
+                final statusString = r.status == ReportStatus.processed ? 'Processed' : 'Draft';
+                return [r.clientName, r.reportType, r.generatedDate, r.revenueValue, statusString];
+              }).toList(),
+            ),
+          ];
+        },
+      ),
+    );
+
+    Uint8List bytes = await pdf.save();
+    final blob = html.Blob([bytes], 'application/pdf');
+    final url = html.Url.createObjectUrlFromBlob(blob);
+    final anchor = html.AnchorElement(href: url)
+      ..setAttribute('download', 'system_reports_${DateTime.now().millisecondsSinceEpoch}.pdf')
+      ..click();
+    html.Url.revokeObjectUrl(url);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -926,23 +970,28 @@ class _ExportButton extends StatelessWidget {
         height: 54,
         padding: const EdgeInsets.symmetric(horizontal: 28),
         decoration: BoxDecoration(
-          gradient: AppColors.primaryGradient,
+          gradient: reports.isEmpty
+              ? null
+              : AppColors.primaryGradient,
+          color: reports.isEmpty ? AppColors.surfaceContainerHigh : null,
           borderRadius: BorderRadius.circular(9),
-          boxShadow: const [
-            BoxShadow(
-              color: Color.fromRGBO(0, 184, 148, 0.18),
-              blurRadius: 24,
-              offset: Offset(0, 12),
-            ),
-          ],
+          boxShadow: reports.isEmpty
+              ? null
+              : const [
+                  BoxShadow(
+                    color: Color.fromRGBO(0, 184, 148, 0.18),
+                    blurRadius: 24,
+                    offset: Offset(0, 12),
+                  ),
+                ],
         ),
         child: TextButton.icon(
-          onPressed: () {},
-          icon: const Icon(Icons.download, color: Colors.white),
-          label: const Text(
+          onPressed: reports.isEmpty ? null : _exportPDF,
+          icon: Icon(Icons.download, color: reports.isEmpty ? AppColors.secondary : Colors.white),
+          label: Text(
             'Export Data',
             style: TextStyle(
-              color: Colors.white,
+              color: reports.isEmpty ? AppColors.secondary : Colors.white,
               fontSize: 14,
               fontWeight: FontWeight.w900,
             ),
