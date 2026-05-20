@@ -103,119 +103,130 @@ class _ClientAppointmentsPageState extends State<ClientAppointmentsPage> {
     );
   }
 
-  Future<void> rescheduleAppointment(String docId) async {
-    DateTime selectedDate = DateTime.now();
-    String selectedTime = '9:00 AM';
-    final reasonController = TextEditingController();
+Future<void> rescheduleAppointment(String docId) async {
+  DateTime selectedDate = DateTime.now();
+  String selectedTime = '9:00 AM';
+  final reasonController = TextEditingController();
 
-    final times = const [
-      '9:00 AM',
-      '10:00 AM',
-      '11:00 AM',
-      '12:00 PM',
-      '1:00 PM',
-      '2:00 PM',
-      '3:00 PM',
-      '4:00 PM',
-      '5:00 PM',
-      '6:00 PM',
-      '7:00 PM',
-      '8:00 PM',
-      '9:00 PM',
-      '10:00 PM',
-      '11:00 PM',
-      '12:00 AM',
-      '1:00 AM',
-      '2:00 AM',
-    ];
+  final times = const [
+    '9:00 AM',
+    '10:00 AM',
+    '11:00 AM',
+    '12:00 PM',
+    '1:00 PM',
+    '2:00 PM',
+    '3:00 PM',
+    '4:00 PM',
+    '5:00 PM',
+    '6:00 PM',
+    '7:00 PM',
+    '8:00 PM',
+    '9:00 PM',
+    '10:00 PM',
+    '11:00 PM',
+    '12:00 AM',
+    '1:00 AM',
+    '2:00 AM',
+  ];
 
-    await showDialog(
-      context: context,
-      builder: (_) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Reschedule Appointment'),
-              content: SizedBox(
-                width: 420,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CalendarDatePicker(
-                      initialDate: selectedDate,
-                      firstDate: DateTime.now(),
-                      lastDate: DateTime.now().add(const Duration(days: 90)),
-                      onDateChanged: (date) {
-                        setDialogState(() => selectedDate = date);
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      value: selectedTime,
-                      items: times
-                          .map(
-                            (time) => DropdownMenuItem(
-                          value: time,
-                          child: Text(time),
+  await showDialog(
+    context: context,
+    builder: (_) {
+      return StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text('Reschedule Appointment'),
+            content: SizedBox(
+              width: 420,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.sizeOf(context).height * 0.68,
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CalendarDatePicker(
+                        initialDate: selectedDate,
+                        firstDate: DateTime.now(),
+                        lastDate: DateTime.now().add(const Duration(days: 90)),
+                        onDateChanged: (date) {
+                          setDialogState(() => selectedDate = date);
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        value: selectedTime,
+                        isExpanded: true,
+                        menuMaxHeight: 220,
+                        items: times
+                            .map(
+                              (time) => DropdownMenuItem(
+                                value: time,
+                                child: Text(time),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setDialogState(() => selectedTime = value);
+                        },
+                        decoration: const InputDecoration(
+                          labelText: 'New time',
+                          border: OutlineInputBorder(),
                         ),
-                      )
-                          .toList(),
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setDialogState(() => selectedTime = value);
-                      },
-                      decoration: const InputDecoration(
-                        labelText: 'New time',
-                        border: OutlineInputBorder(),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: reasonController,
-                      maxLines: 3,
-                      decoration: const InputDecoration(
-                        labelText: 'Reason',
-                        border: OutlineInputBorder(),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: reasonController,
+                        maxLines: 3,
+                        decoration: const InputDecoration(
+                          labelText: 'Reason',
+                          border: OutlineInputBorder(),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Close'),
-                ),
-                ElevatedButton(
-                  onPressed: () async {
-                    await FirebaseFirestore.instance
-                        .collection('appointments')
-                        .doc(docId)
-                        .update({
-                      'status': 'Rescheduled',
-                      'appointmentDate': Timestamp.fromDate(selectedDate),
-                      'appointmentTime': selectedTime,
-                      'rescheduleReason': reasonController.text.trim(),
-                      'rescheduledAt': FieldValue.serverTimestamp(),
-                      'updatedAt': FieldValue.serverTimestamp(),
-                    });
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  await FirebaseFirestore.instance
+                      .collection('appointments')
+                      .doc(docId)
+                      .update({
+                    'status': 'Rescheduled',
+                    'appointmentDate': Timestamp.fromDate(selectedDate),
+                    'appointmentTime': selectedTime,
+                    'rescheduleReason': reasonController.text.trim(),
+                    'rescheduledAt': FieldValue.serverTimestamp(),
+                    'updatedAt': FieldValue.serverTimestamp(),
+                  });
 
-                    if (!context.mounted) return;
-                    Navigator.pop(context);
+                  if (!context.mounted) return;
+                  Navigator.pop(context);
 
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Appointment rescheduled')),
-                    );
-                  },
-                  child: const Text('Save'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Appointment rescheduled')),
+                  );
+                },
+                child: const Text('Save'),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+
+  reasonController.dispose();
+}
 
   Future<void> _showReasonDialog({
     required String title,
